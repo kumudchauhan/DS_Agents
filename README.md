@@ -1,10 +1,12 @@
-# 🧠 Autonomous Data Science Agent (LangGraph + LLM)
+# Autonomous Data Science Agent (LangGraph + LLM)
 
-## 🚀 Overview
+## Overview
 
 This project implements an **autonomous data science agent** that can:
 
-* Perform **Exploratory Data Analysis (EDA)**
+* Perform Exploratory Data Analysis **(EDA)**
+* Create Data Visualizations
+* Provide Data Quality report
 * Clean and preprocess datasets
 * Engineer meaningful features
 * Train and evaluate machine learning models
@@ -16,9 +18,9 @@ The system is built using a **stateful graph-based architecture**, enabling stru
 
 ---
 
-## 🧩 Key Features
+## Key Features
 
-### ✅ Agentic Workflow (LangGraph)
+### Agentic Workflow - Using LangGraph
 
 * Stateful execution across multiple steps
 * Modular nodes for each stage of the DS pipeline
@@ -26,16 +28,17 @@ The system is built using a **stateful graph-based architecture**, enabling stru
 
 ---
 
-### 🔁 Self-Improvement Loop (Core Innovation)
+### 🔁 Self-Improvement Loop 
 
-The agent doesn’t just run once — it **learns and improves**:
+The agent doesn’t just run once — it **observe, react, learns and improves**:
 
 ```
 EDA → Cleaning → Feature Engineering → Modeling → Evaluation → Critic → (loop)
 ```
 
+Use LLM as a judge to
 * Evaluates model performance
-* Uses LLM to critique results
+* critique results
 * Refines pipeline automatically
 
 ---
@@ -141,7 +144,7 @@ You can plug in **any CSV dataset**.
 
 ### 🧾 Requirements for your dataset
 
-* Must be a `.csv` file
+* Must be a `.csv` file (for now using CSV, code can be tweaked for reading JSON or any other datatype) 
 * Should contain:
 
   * Features (X)
