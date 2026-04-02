@@ -62,34 +62,6 @@ Use LLM as a judge to
 
 ---
 
-## Design Considerations & Plan Deviations
-
-### Key Design Decisions
-
-* **Dual-state pattern (`dataframe` + `cleaned_dataframe`)** — The cleaned dataframe is preserved as a separate state field so the improvement loop always re-runs feature engineering from clean data, rather than re-encoding an already-encoded dataframe. Without this, timestamp-derived features (account age, hour of day) would be lost on loop iterations.
-
-* **Progressive feature engineering** — Features are added incrementally across iterations rather than all at once. Iteration 0 gets base features (account age, ratios, flags), iteration 1 adds log transforms and time-based signals, iteration 2 adds velocity and deviation features. This lets the agent demonstrate visible improvement across cycles.
-
-* **Model rotation by iteration** — Instead of always training the same model, the modeling node rotates through RandomForest (balanced) → GradientBoosting → tuned RandomForest. This gives the agent a broader search over model families without requiring the LLM to generate code.
-
-* **Graceful LLM fallback** — If Ollama is not running, the critic node catches the connection error and provides hardcoded improvement suggestions. This means the full pipeline works without any external dependency, which is important for a demo system.
-
-* **Data quality handling** — The dataset has several real-world quality issues that the cleaning node handles: mixed types (`is_international` read as object), inconsistent casing (`travel` vs `TRAVEL`), sentinel strings (`N/A`), invalid target values (`-1.0`, `2.0`), and missing values across multiple columns.
-
-* **Stopping conditions** — The decision node stops on either F1 >= 0.85 or max iterations (default 3), whichever comes first.
-
-### Deviations from Original Plan
-
-| Planned | Actual | Reason |
-| --- | --- | --- |
-| `tools/` and `prompts/` directories | Not created | No code execution tools or separate prompt templates needed for MVP — the LLM prompt is inline in the critic node |
-| Target column configured in `modeling.py` | Passed as parameter via `run_agent()` | Cleaner API — avoids editing source files to switch datasets |
-| Single `dataframe` in state | Added `cleaned_dataframe` field | Required so the loop can re-derive features from raw columns on each iteration |
-| Numeric columns assumed clean | Added `pd.to_numeric` coercion step | Dataset has columns (`is_international`) stored as mixed object type that fail on `.median()` |
-| Target assumed binary 0/1 | Added filtering for valid target values | Dataset contains `-1.0` and `2.0` values in `is_fraud` that would corrupt training |
-
----
-
 ## 📁 Project Structure
 
 ```
