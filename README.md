@@ -257,7 +257,7 @@ You can use this framework for:
 
 ---
 
-## 📈 Example Output
+## Example Output
 
 ```
 Iteration 1:
@@ -271,7 +271,7 @@ Feedback: Try different model, normalize features
 
 ---
 
-## 🧪 Extending the System
+## Extending the System
 
 ### Easy Extensions
 
@@ -291,7 +291,7 @@ Feedback: Try different model, normalize features
 
 ---
 
-## 🔁 Switching to API-Based LLM (Optional)
+## Switching to API-Based LLM (Optional)
 
 If you want stronger reasoning:
 
@@ -323,7 +323,7 @@ This project demonstrates:
 
 ---
 
-## 📌 Note
+## Note:
 
 This is a **starter framework**, can be customized to any Data Science ML usecase.
 
@@ -338,7 +338,7 @@ You are encouraged to:
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Feel free to fork and extend.
 
