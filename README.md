@@ -133,7 +133,7 @@ python -m app.main
 
 ---
 
-## 📊 Using Your Own Dataset (IMPORTANT)
+## 📊 Using Your Own Dataset
 
 This project is **NOT limited to fraud detection**.
 
