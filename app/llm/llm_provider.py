@@ -14,6 +14,12 @@ def get_llm(
     """
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
+        try:
+            import streamlit as st
+            api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+        except Exception:
+            pass
+    if not api_key:
         raise RuntimeError(
             "OPENROUTER_API_KEY is not set. "
             "Get a key at https://openrouter.ai/keys and run:\n"
