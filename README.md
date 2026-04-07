@@ -1,348 +1,209 @@
 # Autonomous Data Science Agent (LangGraph + LLM)
 
+**Live Demo:** [kc-agents.streamlit.app](https://kc-agents.streamlit.app/)
+
 ## Overview
 
-This project implements an **autonomous data science agent** that can:
+An **autonomous data science agent** that iteratively builds, evaluates, and improves ML pipelines — driven by LLM feedback, not hardcoded rules.
 
-* Perform Exploratory Data Analysis **(EDA)**
-* Create Data Visualizations
-* Provide Data Quality report
-* Clean and preprocess datasets
-* Engineer meaningful features
-* Train and evaluate machine learning models
-* Iteratively improve itself using an **LLM-based feedback loop**
+Upload a CSV, pick a target column, and the agent will:
 
-The system is built using a **stateful graph-based architecture**, enabling structured workflows, conditional execution, and iterative refinement.
+- Perform exploratory data analysis (EDA) with visualizations
+- Generate a data quality report with ranked issues
+- Clean and preprocess the dataset
+- Engineer features from a registry of 14 safe transforms
+- Train and evaluate models from a pool of 4 classifiers
+- Use an **LLM critic** to analyze results and recommend improvements
+- **Loop** — applying the critic's recommendations to the next iteration
+- Surface diagnostic **Key Takeaways** (zero-recall, accuracy paradox, F1 regression, etc.)
 
-> ⚠️ This is a **starter framework / demo system** — designed to showcase agentic AI design patterns. It is intentionally flexible and can be adapted to **any dataset or ML problem**, not just fraud detection.
+Built with **LangGraph** for stateful graph execution, **OpenRouter** for LLM access, and **Streamlit** for the interactive UI.
+
+---
+
+## Architecture — The REACT Loop
+
+The agent runs a closed feedback loop where the LLM critic's recommendations actually drive the next iteration:
+
+```
+EDA → Cleaning → Feature Engineering → Modeling → Evaluation → Critic → Decision
+                        ↑                                         |
+                        └─── recommendations (features, model) ───┘
+```
+
+| Component | What it does |
+|---|---|
+| **Critic Node** | Two LLM calls: (1) text feedback for the UI, (2) structured JSON recommendations for the pipeline |
+| **Feature Engineering** | Reads `recommendations["features_to_add"]` — picks from a registry of 14 transforms |
+| **Modeling** | Reads `recommendations["model_config"]` — instantiates from 4 models with clamped hyperparameters |
+| **Decision** | Stops on F1 >= 0.85, max iterations, or LLM `should_stop` signal |
+
+Iteration 0 uses sensible defaults (5 base features + LogisticRegression). Every subsequent iteration is shaped by the LLM's analysis of the previous results.
 
 ---
 
 ## Key Features
 
-### Agentic Workflow - Using LangGraph
+### Adaptive Pipeline (Not Hardcoded)
 
-* Stateful execution across multiple steps
-* Modular nodes for each stage of the DS pipeline
-* Conditional looping for iterative improvement
+The LLM critic produces **structured JSON recommendations** that control:
+- Which features to create (from 14 available transforms)
+- Which model to train (LogisticRegression, RandomForest, GradientBoosting, SVC)
+- Hyperparameters (validated and clamped to safe ranges)
+- Whether to stop iterating
+
+### Feature Registry
+
+14 safe, self-contained transforms — each handles its own column dependencies:
+
+| Feature | Description |
+|---|---|
+| `account_age_days` | Days between signup and transaction |
+| `hour_of_day` | Transaction hour |
+| `day_of_week` | Day of week (0=Mon) |
+| `amount_to_avg_ratio` | Amount / 7-day average |
+| `is_high_amount` | Above 95th percentile |
+| `log_amount` | Log-transform of amount |
+| `is_new_account` | Account < 30 days old |
+| `is_night_txn` | Hour 23–5 |
+| `amount_deviation` | |amount - avg_amount_7d| |
+| `high_velocity` | 4+ transactions in 24h |
+| `amount_squared` | Non-linear amount effect |
+| `amount_x_velocity` | Amount x transaction velocity |
+| `is_weekend` | Saturday or Sunday |
+| `txn_per_avg_ratio` | Transaction count / avg spending |
+
+### Model Factory
+
+| Model | Hyperparameter Ranges |
+|---|---|
+| LogisticRegression | C: 0.01–10 |
+| RandomForestClassifier | n_estimators: 50–300, max_depth: 5–30 |
+| GradientBoostingClassifier | n_estimators: 50–300, learning_rate: 0.01–0.3, max_depth: 3–10 |
+| SVC | C: 0.1–10, kernel: rbf/linear |
+
+All models use `class_weight="balanced"`. Scaling is auto-applied for models that need it.
+
+### Key Takeaways (Diagnostics)
+
+The UI automatically surfaces actionable issues:
+- **Zero recall** — model classifies everything as negative (class-imbalance problem)
+- **Accuracy paradox** — high accuracy but near-zero F1 on imbalanced data
+- **F1 regression** — performance dropped between iterations
+- **Feature set changes** — what was added/removed across iterations
+- **LLM engagement** — whether recommendations were applied or fell back to defaults
+
+### Streamlit UI
+
+Six sections rendered during and after the pipeline run:
+
+1. **Upload Dataset** — CSV upload with target column selection
+2. **Run Pipeline** — step-by-step status tracking with live progress
+3. **Data Exploration** — data quality report (ranked issues, missing values, target distribution) + EDA visualizations
+4. **Pipeline Details** — cleaning summary, feature engineering per iteration, feature importance charts
+5. **Model Results** — grouped metrics chart, comparison table, Key Takeaways diagnostics, LLM critic feedback
+6. **Q&A** — ask natural language questions about the dataset
 
 ---
 
-### 🔁 Self-Improvement Loop 
-
-The agent doesn’t just run once — it **observe, react, learns and improves**:
-
-```
-EDA → Cleaning → Feature Engineering → Modeling → Evaluation → Critic → (loop)
-```
-
-Use LLM as a judge to
-* Evaluates model performance
-* critique results
-* Refines pipeline automatically
-
----
-
-### 🤖 LLM-as-Judge
-
-* Provides feedback on:
-
-  * Feature engineering quality
-  * Model choice
-  * Data issues (imbalance, leakage)
-* Drives iterative improvements
-
----
-
-### 💰 Fully Local & Free
-
-* Runs entirely on your machine
-* Uses local LLMs (via Ollama)
-* No API keys required
-
----
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 ds_agent/
-│
+├── streamlit_app.py              # Streamlit UI entry point
 ├── app/
-│   ├── main.py                  # Entry point — run_agent()
+│   ├── main.py                   # CLI entry point — run_agent()
 │   ├── graph/
-│   │   ├── builder.py           # LangGraph workflow with conditional loop
-│   │   ├── state.py             # AgentState TypedDict (shared state)
+│   │   ├── builder.py            # LangGraph workflow with conditional loop
+│   │   ├── state.py              # AgentState TypedDict (shared state)
 │   │   └── nodes/
-│   │       ├── eda.py           # Load CSV, profile data, report distributions
-│   │       ├── cleaning.py      # Normalise strings, fill NaNs, parse dates
-│   │       ├── feature_eng.py   # Progressive features (more each iteration)
-│   │       ├── modeling.py      # Rotates models across iterations
-│   │       ├── evaluation.py    # F1, precision, recall, confusion matrix
-│   │       ├── critic.py        # LLM critique via Ollama (with fallback)
-│   │       └── decision.py      # Stop on F1 threshold or max iterations
-│   │
-│   └── llm/
-│       └── llm_provider.py      # ChatOllama wrapper
-│
+│   │       ├── eda.py            # Load CSV, profile data, generate visualizations
+│   │       ├── cleaning.py       # Normalise strings, fill NaNs, parse dates
+│   │       ├── feature_eng.py    # Feature registry — 14 transforms, LLM-driven selection
+│   │       ├── modeling.py       # Model factory — 4 classifiers, LLM-driven config
+│   │       ├── evaluation.py     # F1, precision, recall, confusion matrix
+│   │       ├── critic.py         # LLM critique + structured JSON recommendations
+│   │       └── decision.py       # Stop on F1 threshold, max iter, or LLM signal
+│   ├── llm/
+│   │   └── llm_provider.py      # OpenRouter via ChatOpenAI
+│   └── ui/
+│       ├── components.py         # Render helpers (data quality, features, metrics, takeaways)
+│       ├── pipeline_runner.py    # Pipeline execution generator for Streamlit
+│       └── qa.py                 # Natural language Q&A over the dataset
 ├── data/
-│   └── transactions.csv         # 1005-row fraud detection dataset
-│
-├── outputs/
-├── requirements.txt
-└── README.md
+│   └── transactions.csv          # 1005-row fraud detection dataset (demo)
+├── outputs/                      # Generated visualizations
+└── requirements.txt
 ```
 
 ---
 
-## ⚙️ Setup Instructions
+## Setup
 
-### 1. Clone the repo
-
-```bash
-git clone <your-repo-url>
-cd autonomous-ds-agent
-```
-
----
-
-### 2. Install dependencies
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/kumudchauhan/DS_Agents.git
+cd DS_Agents
 pip install -r requirements.txt
 ```
 
----
+### 2. Set your OpenRouter API key
 
-### 3. Install and run local LLM (Ollama)
+Get a free key at [openrouter.ai/keys](https://openrouter.ai/keys).
 
 ```bash
-# Install Ollama (if not installed)
-# https://ollama.com
-
-# Pull a model
-ollama pull mistral
+export OPENROUTER_API_KEY='your-key-here'
 ```
 
----
+### 3. Run
 
-### 4. Run the agent
+**Streamlit UI (recommended):**
+```bash
+streamlit run streamlit_app.py
+```
 
+**CLI:**
 ```bash
 python -m app.main
 ```
 
 ---
 
-## 📊 Using Your Own Dataset
+## Using Your Own Dataset
 
-This project is **NOT limited to fraud detection**.
+Upload any CSV through the Streamlit UI — no code changes required. Select your target column from the dropdown.
 
-You can plug in **any CSV dataset**.
-
----
-
-### 🧾 Requirements for your dataset
-
-* Must be a `.csv` file (for now using CSV, code can be tweaked for reading JSON or any other datatype) 
-* Should contain:
-
-  * Features (X)
-  * Target variable (y)
-
----
-
-### 🔧 How to Customize
-
-#### Step 1: Replace dataset
-
-Put your file in:
-
-```
-/data/your_dataset.csv
-```
-
----
-
-#### Step 2: Update dataset path
-
-In `main.py`:
-
-```python
-run_agent("data/your_dataset.csv")
-```
-
----
-
-#### Step 3: Define target column
-
-In `main.py`, update the `run_agent` call:
-
+For CLI usage, update `main.py`:
 ```python
 run_agent("data/your_dataset.csv", target_column="your_target")
 ```
 
----
-
-#### Step 4: Adjust task type (if needed)
-
-| Task Type      | What to change                                     |
-| -------------- | -------------------------------------------------- |
-| Classification | Use classifiers (RandomForest, LogisticRegression) |
-| Regression     | Use regressors (LinearRegression, XGBoost)         |
+The agent handles data profiling, cleaning, and feature engineering automatically. The feature registry is general-purpose and will skip transforms whose required source columns don't exist.
 
 ---
 
-## 🧠 Example Use Cases
+## Deployment
 
-You can use this framework for:
-
-* Fraud detection (default demo)
-* Churn prediction
-* Credit risk modeling
-* Sales forecasting (regression)
-* Customer segmentation (with modifications)
+The app is deployed on **Streamlit Community Cloud**:
+- Auto-deploys from `main` branch on push
+- API key configured via Streamlit Secrets (`OPENROUTER_API_KEY`)
+- Live at [kc-agents.streamlit.app](https://kc-agents.streamlit.app/)
 
 ---
 
-## 🔄 How the Agent Works
+## Tech Stack
 
-### 1. EDA Node
-
-* Understands data distributions
-* Identifies missing values
-
----
-
-### 2. Cleaning Node
-
-* Handles missing values
-* Fixes data types
-
----
-
-### 3. Feature Engineering Node
-
-* Creates derived features
-* Improves signal quality
-
----
-
-### 4. Modeling Node
-
-* Trains ML model
-* Splits train/test
-
----
-
-### 5. Evaluation Node
-
-* Computes metrics (F1, accuracy, etc.)
-
----
-
-### 6. Critic Node (LLM)
-
-* Analyzes performance
-* Suggests improvements
-
----
-
-### 7. Decision Node
-
-* Decides:
-
-  * Continue improving
-  * OR stop
-
----
-
-## Example Output
-
-```
-Iteration 1:
-F1 Score: 0.58
-Feedback: Add ratio-based features, handle class imbalance
-
-Iteration 2:
-F1 Score: 0.64
-Feedback: Try different model, normalize features
-```
-
----
-
-## Extending the System
-
-### Easy Extensions
-
-* Add new models (XGBoost, LightGBM)
-* Add new feature engineering steps
-* Improve prompts for better LLM reasoning
-
----
-
-### Advanced Extensions
-
-* Multi-model comparison
-* Hyperparameter tuning loop
-* Dataset-agnostic auto-detection
-* Experiment tracking
-* UI dashboard (Streamlit)
-
----
-
-## Switching to API-Based LLM (Optional)
-
-If you want stronger reasoning:
-
-### Replace:
-
-* Local LLM (Ollama)
-
-### With:
-
-* OpenAI / GPT API
-
-Only update:
-
-```
-app/llm/llm_provider.py
-```
-
----
-
-## 🎯 Why This Project Matters
-
-This project demonstrates:
-
-* ✅ Agentic AI system design
-* ✅ LangGraph-based orchestration
-* ✅ Iterative self-improving pipelines
-* ✅ Real-world ML workflow automation
-* ✅ Cost-efficient AI engineering
-
----
-
-## Note:
-
-This is a **starter framework**, can be customized to any Data Science ML usecase.
-
-> The goal is to apply my learning of Agentic systems to showcase **how to design autonomous systems**, not just train models.
-
-You are encouraged to:
-
-* Modify it
-* Break it
-* Extend it
-* Make it your own
+| Component | Technology |
+|---|---|
+| Orchestration | LangGraph (stateful graph execution) |
+| LLM | OpenRouter (Mistral Small 3.1 24B) |
+| ML | scikit-learn |
+| UI | Streamlit |
+| Data | pandas, numpy, matplotlib |
 
 ---
 
 ## Contributing
 
-Feel free to fork and extend.
-
----
-
-## ⭐ If you found this useful
-
-Give it a star and share your improvements!
+Fork, extend, and make it your own. PRs welcome.
