@@ -1,5 +1,7 @@
 """Reusable Streamlit render helpers for each section of the UI."""
 
+from __future__ import annotations
+
 import os
 
 import matplotlib
