@@ -14,8 +14,11 @@ from app.ui.pipeline_runner import (
 from app.ui.components import (
     render_data_quality_summary,
     render_eda_visualizations,
+    render_cleaning_summary,
+    render_feature_summary,
+    render_feature_importance,
     render_iteration_metrics_chart,
-    render_key_highlights,
+    render_key_takeaways,
 )
 from app.ui.qa import ask_question_about_data
 
@@ -208,18 +211,46 @@ if st.session_state.agent_result is not None:
         render_eda_visualizations()
 
 # ===================================================================
-# Section 4 — Model Results
+# Section 4 — Pipeline Details (Cleaning, Features, Importance)
 # ===================================================================
 if st.session_state.agent_history:
-    st.header("4. Model Results")
+    st.header("4. Pipeline Details")
 
-    tab_metrics, tab_highlights = st.tabs(["Metrics Comparison", "Key Highlights"])
+    tab_cleaning, tab_features, tab_importance = st.tabs(
+        ["Data Cleaning", "Feature Engineering", "Feature Importance"]
+    )
+
+    # Use first iteration for cleaning (same across all iterations)
+    first_hist = st.session_state.agent_history[0]
+
+    with tab_cleaning:
+        render_cleaning_summary(first_hist.get("cleaning_report", ""))
+
+    with tab_features:
+        for h in st.session_state.agent_history:
+            with st.expander(
+                f"Iteration {h['iteration']} features", expanded=(h == first_hist)
+            ):
+                render_feature_summary(
+                    h.get("feature_report", ""), h["iteration"]
+                )
+
+    with tab_importance:
+        render_feature_importance(st.session_state.agent_history)
+
+# ===================================================================
+# Section 5 — Model Results
+# ===================================================================
+if st.session_state.agent_history:
+    st.header("5. Model Results")
+
+    tab_metrics, tab_takeaways = st.tabs(["Metrics Comparison", "Key Takeaways"])
 
     with tab_metrics:
         render_iteration_metrics_chart(st.session_state.agent_history)
 
-    with tab_highlights:
-        render_key_highlights(st.session_state.agent_history)
+    with tab_takeaways:
+        render_key_takeaways(st.session_state.agent_history)
 
     st.subheader("LLM Critic Feedback")
     for h in st.session_state.agent_history:
@@ -227,10 +258,10 @@ if st.session_state.agent_history:
             st.markdown(h.get("feedback", "_No feedback recorded._"))
 
 # ===================================================================
-# Section 5 — Ask Questions (NL Q&A)
+# Section 6 — Ask Questions (NL Q&A)
 # ===================================================================
 if st.session_state.uploaded_df is not None:
-    st.header("5. Ask Questions About Your Data")
+    st.header("6. Ask Questions About Your Data")
 
     for msg in st.session_state.qa_messages:
         with st.chat_message(msg["role"]):

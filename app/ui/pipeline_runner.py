@@ -59,6 +59,7 @@ def run_pipeline(dataset_path: str, target_column: str, max_iterations: int):
         "evaluation_report": "",
         "history": [],
         "should_continue": True,
+        "recommendations": {},
     }
 
     accumulated: dict = dict(initial_state)

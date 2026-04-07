@@ -40,6 +40,7 @@ def run_agent(
         "evaluation_report": "",
         "history": [],
         "should_continue": True,
+        "recommendations": {},
     }
 
     result = graph.invoke(initial_state)

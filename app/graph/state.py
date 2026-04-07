@@ -22,3 +22,4 @@ class AgentState(TypedDict):
     evaluation_report: str
     history: list
     should_continue: bool
+    recommendations: dict
