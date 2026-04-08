@@ -13,6 +13,7 @@ from app.ui.pipeline_runner import (
     NODE_LABELS,
 )
 from app.ui.components import (
+    render_data_profile,
     render_data_quality_summary,
     render_eda_visualizations,
     render_cleaning_summary,
@@ -345,7 +346,9 @@ if st.session_state.da_agent_result is not None:
     ])
 
     with tab_profile:
-        st.markdown(da.get("stat_block", "_No stat block available._"))
+        render_data_profile(
+            st.session_state.uploaded_df, st.session_state.target_column
+        )
 
     with tab_quality:
         render_data_quality_summary(

@@ -167,6 +167,128 @@ def render_data_quality_summary(df: pd.DataFrame, target_column: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Section: Data Profile (DA Agent)
+# ---------------------------------------------------------------------------
+
+def render_data_profile(df: pd.DataFrame, target_column: str) -> None:
+    """Render a clean, structured data profile using native Streamlit widgets."""
+    if df is None or df.empty:
+        st.info("No data available.")
+        return
+
+    total_rows, total_cols = df.shape
+
+    # ── Shape + high-level metrics ────────────────────────────────
+    st.subheader("Dataset Overview")
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    categorical_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+    datetime_cols = df.select_dtypes(include="datetime").columns.tolist()
+    total_missing = int(df.isna().sum().sum())
+    missing_pct = total_missing / (total_rows * total_cols) * 100 if total_rows * total_cols else 0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Rows", f"{total_rows:,}")
+    c2.metric("Columns", total_cols)
+    c3.metric("Numeric", len(numeric_cols))
+    c4.metric("Categorical", len(categorical_cols))
+    c5.metric("Missing Cells", f"{missing_pct:.1f}%")
+
+    st.divider()
+
+    # ── Column types breakdown ────────────────────────────────────
+    st.subheader("Column Types")
+    type_rows = []
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        if col in numeric_cols:
+            category = "Numeric"
+        elif col in categorical_cols:
+            category = "Categorical"
+        elif col in datetime_cols:
+            category = "Datetime"
+        else:
+            category = "Other"
+        type_rows.append({
+            "Column": col,
+            "Dtype": dtype,
+            "Category": category,
+            "Unique": int(df[col].nunique()),
+            "Missing": int(df[col].isna().sum()),
+            "Missing %": f"{df[col].isna().sum() / total_rows * 100:.1f}%" if df[col].isna().any() else "-",
+        })
+    st.dataframe(pd.DataFrame(type_rows), width="stretch", hide_index=True)
+
+    st.divider()
+
+    # ── Descriptive statistics ────────────────────────────────────
+    st.subheader("Descriptive Statistics")
+    desc = df.describe()
+    # Round for readability
+    st.dataframe(desc.round(3), width="stretch")
+
+    st.divider()
+
+    # ── Target distribution ───────────────────────────────────────
+    if target_column in df.columns:
+        st.subheader(f"Target Distribution ({target_column})")
+        target_series = pd.to_numeric(df[target_column], errors="coerce")
+        vc = target_series.value_counts().sort_index()
+        dist_df = pd.DataFrame({
+            "Value": vc.index.astype(int),
+            "Count": vc.values,
+            "Share": (vc.values / vc.sum() * 100).round(1),
+        })
+        dist_df["Share"] = dist_df["Share"].astype(str) + "%"
+
+        col_left, col_right = st.columns([1, 2])
+        with col_left:
+            st.dataframe(dist_df, width="stretch", hide_index=True)
+        with col_right:
+            if len(vc) == 2:
+                minority = vc.min()
+                majority = vc.max()
+                st.metric("Minority Class", f"{minority / total_rows * 100:.1f}%")
+                st.metric("Imbalance Ratio", f"1:{majority // minority if minority > 0 else 'inf'}")
+
+        st.divider()
+
+    # ── Missing values ────────────────────────────────────────────
+    missing = df.isna().sum()
+    cols_with_missing = missing[missing > 0].sort_values(ascending=False)
+    if not cols_with_missing.empty:
+        st.subheader(f"Missing Values ({len(cols_with_missing)} columns)")
+        mv_df = pd.DataFrame({
+            "Column": cols_with_missing.index,
+            "Missing": cols_with_missing.values,
+            "% of Rows": (cols_with_missing.values / total_rows * 100).round(1),
+        }).reset_index(drop=True)
+        st.dataframe(mv_df, width="stretch", hide_index=True)
+        st.divider()
+
+    # ── Target leakage flags ──────────────────────────────────────
+    if target_column in df.columns and len(numeric_cols) >= 2:
+        target_numeric = pd.to_numeric(df[target_column], errors="coerce")
+        leakage = []
+        for col in numeric_cols:
+            if col == target_column:
+                continue
+            try:
+                corr = df[col].corr(target_numeric)
+                if abs(corr) > 0.9:
+                    leakage.append({"Column": col, "Correlation": f"{corr:.3f}"})
+            except Exception:
+                pass
+        if leakage:
+            st.subheader("Potential Target Leakage")
+            for item in leakage:
+                st.warning(
+                    f"**{item['Column']}** has very high correlation "
+                    f"({item['Correlation']}) with the target — possible data leakage."
+                )
+            st.divider()
+
+
+# ---------------------------------------------------------------------------
 # Section: EDA Visualizations
 # ---------------------------------------------------------------------------
 
