@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 
 from langchain_openai import ChatOpenAI
@@ -6,13 +8,18 @@ from langchain_openai import ChatOpenAI
 def get_llm(
     model_name: str = "mistralai/mistral-small-3.1-24b-instruct",
     temperature: float = 0.3,
+    api_key: str | None = None,
 ):
     """Return a ChatOpenAI instance pointing at OpenRouter.
 
-    Set the OPENROUTER_API_KEY environment variable before use.
-    You can optionally override the model via the OPENROUTER_MODEL env var.
+    Parameters
+    ----------
+    api_key : str | None
+        If provided, used directly (not stored). Otherwise falls back to
+        the OPENROUTER_API_KEY env var or Streamlit secrets.
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         try:
             import streamlit as st

@@ -63,87 +63,19 @@ def _step_line(label: str, status: str) -> str:
 
 
 # ===================================================================
-# Sidebar — Pipeline Mode, Instructions, LLM Provider
-# ===================================================================
-with st.sidebar:
-    st.header("Pipeline Settings")
-
-    pipeline_mode = st.radio(
-        "Pipeline Mode",
-        options=["Quick Explore (DA Agent)", "End-to-End Pipeline"],
-        index=0 if st.session_state.pipeline_mode == "lite" else 1,
-        help="Quick Explore: fast data analysis, no modeling. "
-             "End-to-End Pipeline: analysis + iterative modeling with LLM critic.",
-    )
-    st.session_state.pipeline_mode = "lite" if "Quick" in pipeline_mode else "full"
-
-    st.divider()
-
-    # Instructions input
-    st.subheader("Instructions (optional)")
-    instructions_method = st.radio(
-        "Provide instructions via:",
-        options=["Paste text", "Upload .md file"],
-        label_visibility="collapsed",
-    )
-
-    instructions_text = ""
-    if instructions_method == "Upload .md file":
-        md_file = st.file_uploader("Upload instructions.md", type=["md", "txt"])
-        if md_file is not None:
-            instructions_text = md_file.getvalue().decode("utf-8")
-    else:
-        instructions_text = st.text_area(
-            "Paste instructions markdown",
-            height=150,
-            placeholder=(
-                "## Priorities\n"
-                "- Recall matters more than precision\n\n"
-                "## Features\n"
-                "- Must include: log_amount, account_age_days\n"
-                "- Avoid: amount_squared\n\n"
-                "## Models\n"
-                "- Preferred: GradientBoostingClassifier"
-            ),
-        )
-
-    if instructions_text:
-        st.session_state.instructions = parse_instructions(instructions_text)
-        with st.expander("Parsed instructions", expanded=False):
-            parsed = st.session_state.instructions
-            if parsed.get("priorities"):
-                st.markdown("**Priorities:** " + ", ".join(parsed["priorities"]))
-            feat = parsed.get("features", {})
-            if feat.get("must_include"):
-                st.markdown("**Must include:** " + ", ".join(feat["must_include"]))
-            if feat.get("avoid"):
-                st.markdown("**Avoid features:** " + ", ".join(feat["avoid"]))
-            models = parsed.get("models", {})
-            if models.get("preferred"):
-                st.markdown("**Preferred models:** " + ", ".join(models["preferred"]))
-            if models.get("avoid"):
-                st.markdown("**Avoid models:** " + ", ".join(models["avoid"]))
-            if parsed.get("visualization"):
-                st.markdown("**Viz prefs:** " + ", ".join(parsed["visualization"]))
-    else:
-        st.session_state.instructions = {}
-
-    # LLM provider for DA Agent
-    if st.session_state.pipeline_mode == "lite":
-        st.divider()
-        st.subheader("LLM Provider (DA Agent)")
-        llm_provider = st.radio(
-            "LLM Provider",
-            options=["Ollama (local)", "OpenRouter (cloud)"],
-            label_visibility="collapsed",
-            help="Ollama runs locally. OpenRouter requires an API key.",
-        )
-        st.session_state["da_local_mode"] = "Ollama" in llm_provider
-
-# ===================================================================
-# Section 1 — Upload Dataset
+# Section 1 — Upload Dataset & Settings
 # ===================================================================
 st.header("1. Upload Dataset")
+
+pipeline_mode = st.radio(
+    "Pipeline Mode",
+    options=["Quick Explore (DA Agent)", "End-to-End DS Pipeline"],
+    index=0 if st.session_state.pipeline_mode == "lite" else 1,
+    horizontal=True,
+    help="Quick Explore: fast data analysis, no modeling. "
+         "End-to-End DS Pipeline: analysis + iterative modeling with LLM critic.",
+)
+st.session_state.pipeline_mode = "lite" if "Quick" in pipeline_mode else "full"
 
 uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
 
@@ -175,10 +107,92 @@ else:
     st.info("Upload a CSV file to get started.")
 
 # ===================================================================
-# Section 2 — Run Pipeline (mode-dependent)
+# Section 2 — Settings & Run Pipeline
 # ===================================================================
 if st.session_state.dataset_path is not None:
     st.header("2. Run Pipeline")
+
+    # ── Instructions (optional) ───────────────────────────────────
+    with st.expander("Instructions (optional)", expanded=False):
+        instructions_method = st.radio(
+            "Provide instructions via:",
+            options=["Paste text", "Upload .md file"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+        instructions_text = ""
+        if instructions_method == "Upload .md file":
+            md_file = st.file_uploader("Upload instructions.md", type=["md", "txt"])
+            if md_file is not None:
+                instructions_text = md_file.getvalue().decode("utf-8")
+        else:
+            instructions_text = st.text_area(
+                "Paste instructions markdown",
+                height=150,
+                placeholder=(
+                    "## Priorities\n"
+                    "- Recall matters more than precision\n\n"
+                    "## Features\n"
+                    "- Must include: log_amount, account_age_days\n"
+                    "- Avoid: amount_squared\n\n"
+                    "## Models\n"
+                    "- Preferred: GradientBoostingClassifier"
+                ),
+            )
+
+        if instructions_text:
+            st.session_state.instructions = parse_instructions(instructions_text)
+            parsed = st.session_state.instructions
+            cols = st.columns(3)
+            with cols[0]:
+                if parsed.get("priorities"):
+                    st.markdown("**Priorities:** " + ", ".join(parsed["priorities"]))
+                feat = parsed.get("features", {})
+                if feat.get("must_include"):
+                    st.markdown("**Must include:** " + ", ".join(feat["must_include"]))
+                if feat.get("avoid"):
+                    st.markdown("**Avoid features:** " + ", ".join(feat["avoid"]))
+            with cols[1]:
+                models = parsed.get("models", {})
+                if models.get("preferred"):
+                    st.markdown("**Preferred models:** " + ", ".join(models["preferred"]))
+                if models.get("avoid"):
+                    st.markdown("**Avoid models:** " + ", ".join(models["avoid"]))
+            with cols[2]:
+                if parsed.get("visualization"):
+                    st.markdown("**Viz prefs:** " + ", ".join(parsed["visualization"]))
+        else:
+            st.session_state.instructions = {}
+
+    # ── LLM provider (DA Agent mode) ─────────────────────────────
+    if st.session_state.pipeline_mode == "lite":
+        llm_provider = st.radio(
+            "Run Local vs Cloud",
+            options=["Local", "Cloud"],
+            horizontal=True,
+            help="Local: runs on your machine via Ollama. Cloud: uses OpenRouter (requires API key).",
+        )
+        st.session_state["da_local_mode"] = llm_provider == "Local"
+
+        if llm_provider == "Cloud":
+            import os
+            existing_key = os.environ.get("OPENROUTER_API_KEY", "")
+            if existing_key:
+                st.success("OpenRouter API key detected from environment.")
+            else:
+                st.session_state.setdefault("_da_api_key", "")
+                st.session_state["_da_api_key"] = st.text_input(
+                    "OpenRouter API Key",
+                    type="password",
+                    placeholder="sk-or-...",
+                    help="Key is used for this request only and not stored.",
+                )
+                if not st.session_state["_da_api_key"]:
+                    st.info(
+                        "Paste your key above, or set it as an environment variable before launching:\n\n"
+                        "```\nexport OPENROUTER_API_KEY='sk-or-...'\nstreamlit run streamlit_app.py\n```"
+                    )
 
     # ── Quick Explore (DA Agent) ──────────────────────────────────
     if st.session_state.pipeline_mode == "lite":
@@ -191,6 +205,7 @@ if st.session_state.dataset_path is not None:
                     target_column=st.session_state.target_column,
                     instructions=st.session_state.instructions or None,
                     local_mode=st.session_state.get("da_local_mode", True),
+                    api_key=st.session_state.get("_da_api_key") or None,
                 )
                 st.session_state.da_agent_result = da_result
                 # Preserve dataset_path for handoff
@@ -367,7 +382,11 @@ if st.session_state.da_agent_result is not None:
             st.markdown("**AI-Generated Analysis Script:**")
             st.code(llm_analysis, language="python")
         else:
-            st.info("No LLM was available. Deterministic analysis results are shown in other tabs.")
+            llm_error = da.get("llm_error")
+            if llm_error:
+                st.error(f"LLM call failed: {llm_error}")
+            else:
+                st.info("No LLM was available. Deterministic analysis results are shown in other tabs.")
 
     # Download notebook
     notebook_bytes = da.get("notebook_bytes")
@@ -382,7 +401,7 @@ if st.session_state.da_agent_result is not None:
     # Handoff button
     if st.session_state.pipeline_mode == "lite":
         st.divider()
-        if st.button("Continue to End-to-End Pipeline ->"):
+        if st.button("Continue to End-to-End DS Pipeline ->"):
             st.session_state.pipeline_mode = "full"
             st.rerun()
 

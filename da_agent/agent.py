@@ -126,6 +126,7 @@ def run_da_agent(
     instructions: dict | None = None,
     local_mode: bool = True,
     llm_model_name: str | None = None,
+    api_key: str | None = None,
 ) -> dict:
     """Run the DA Agent analysis-only pipeline.
 
@@ -171,14 +172,16 @@ def run_da_agent(
 
     # 6. LLM analysis (best-effort)
     llm_analysis: str | None = None
+    llm_error: str | None = None
     try:
         from da_agent.llm_manager import get_da_llm
-        llm = get_da_llm(local_mode=local_mode, model_name=llm_model_name)
+        llm = get_da_llm(local_mode=local_mode, model_name=llm_model_name, api_key=api_key)
         prompt = build_da_prompt(stat_block, instructions, dataset_path)
         response = llm.invoke(prompt)
         llm_analysis = response.content
         print("LLM analysis generated.")
     except Exception as e:
+        llm_error = str(e)
         print(f"LLM unavailable ({e}). Skipping AI analysis — deterministic results still available.")
 
     # Build full EDA report text
@@ -219,5 +222,6 @@ def run_da_agent(
         "chart_paths": chart_paths,
         "data_quality_report": data_quality_report,
         "llm_analysis": llm_analysis,
+        "llm_error": llm_error,
         "notebook_bytes": notebook_bytes,
     }

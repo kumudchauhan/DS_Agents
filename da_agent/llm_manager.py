@@ -20,6 +20,7 @@ def get_da_llm(
     local_mode: bool = True,
     model_name: str | None = None,
     temperature: float = 0.2,
+    api_key: str | None = None,
 ):
     """Return an LLM instance for the DA Agent.
 
@@ -32,12 +33,16 @@ def get_da_llm(
         Override the default model name.
     temperature : float
         Sampling temperature (default 0.2 for more deterministic output).
+    api_key : str | None
+        OpenRouter API key passed directly (not stored). Falls back to
+        env var / Streamlit secrets if not provided.
     """
     if not local_mode:
         from app.llm.llm_provider import get_llm
         return get_llm(
             model_name=model_name or "mistralai/mistral-small-3.1-24b-instruct",
             temperature=temperature,
+            api_key=api_key,
         )
 
     # --- Ollama (local) ---
