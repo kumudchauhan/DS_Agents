@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import time
+from typing import Callable
+
 import pandas as pd
 
 from da_agent.stats import generate_stat_block
 from da_agent.charts import generate_eda_charts
 from da_agent.prompts import build_da_prompt
 from da_agent.notebook_export import generate_notebook
+
+# Maximum seconds to wait for an LLM response before giving up.
+LLM_TIMEOUT_SECONDS = 90
 
 
 def _run_cleaning(df: pd.DataFrame, target_column: str) -> tuple[pd.DataFrame, str]:
@@ -120,69 +126,62 @@ def _build_data_quality_report(df: pd.DataFrame, target: str) -> str:
     return "\n".join(lines)
 
 
+def _noop(*_args: object, **_kwargs: object) -> None:
+    pass
+
+
 def run_da_agent(
     dataset_path: str,
     target_column: str,
     instructions: dict | None = None,
-    local_mode: bool = True,
-    llm_model_name: str | None = None,
-    api_key: str | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> dict:
     """Run the DA Agent analysis-only pipeline.
 
-    Steps:
-    1. Load CSV -> pd.DataFrame
-    2. Generate stat block (stats.py)
-    3. Run data cleaning
-    4. Generate EDA charts (charts.py)
-    5. Build data quality report
-    6. Call LLM with DA prompt + stat block -> get analysis script (best-effort)
-    7. Generate notebook artifact with analysis cells only
-
-    Returns dict with dataframe, cleaned_dataframe, stat_block, cleaning_report,
-    eda_report, chart_paths, data_quality_report, llm_analysis, notebook_bytes.
+    Parameters
+    ----------
+    on_progress : callable, optional
+        Called with a status string after each step completes, e.g.
+        ``on_progress("Loading dataset...")``.  Designed for Streamlit's
+        ``st.status.update()``.
     """
-    print("\n" + "=" * 60)
-    print("  DA AGENT — Data Analysis Pipeline")
-    print("=" * 60)
+    progress = on_progress or _noop
+    t0 = time.time()
+
+    def _elapsed() -> str:
+        return f"{time.time() - t0:.1f}s"
 
     # 1. Load CSV
+    progress("Loading dataset...")
     df = pd.read_csv(dataset_path)
-    print(f"Loaded dataset: {df.shape[0]} rows x {df.shape[1]} columns")
+    progress(f"Dataset loaded — {df.shape[0]:,} rows x {df.shape[1]} columns ({_elapsed()})")
 
-    # Coerce target to numeric early (for stat block)
     if target_column in df.columns:
         df[target_column] = pd.to_numeric(df[target_column], errors="coerce")
 
     # 2. Generate stat block
+    progress("Generating data profile...")
     stat_block = generate_stat_block(df, target_column)
-    print("Stat block generated.")
+    progress(f"Data profile ready ({_elapsed()})")
 
     # 3. Run cleaning
+    progress("Cleaning data...")
     cleaned_df, cleaning_report = _run_cleaning(df.copy(), target_column)
-    print(f"Cleaning complete. Shape: {df.shape} -> {cleaned_df.shape}")
+    progress(f"Cleaning complete — {df.shape} -> {cleaned_df.shape} ({_elapsed()})")
 
     # 4. Generate EDA charts
+    progress("Generating visualizations...")
     chart_paths = generate_eda_charts(df, target_column)
-    print(f"Generated {len(chart_paths)} visualizations.")
+    progress(f"Generated {len(chart_paths)} charts ({_elapsed()})")
 
     # 5. Build data quality report
+    progress("Building data quality report...")
     data_quality_report = _build_data_quality_report(df, target_column)
-    print("Data quality report built.")
+    progress(f"Data quality report ready ({_elapsed()})")
 
-    # 6. LLM analysis (best-effort)
+    # 6. LLM analysis — skipped for quick explore (deterministic only)
     llm_analysis: str | None = None
     llm_error: str | None = None
-    try:
-        from da_agent.llm_manager import get_da_llm
-        llm = get_da_llm(local_mode=local_mode, model_name=llm_model_name, api_key=api_key)
-        prompt = build_da_prompt(stat_block, instructions, dataset_path)
-        response = llm.invoke(prompt)
-        llm_analysis = response.content
-        print("LLM analysis generated.")
-    except Exception as e:
-        llm_error = str(e)
-        print(f"LLM unavailable ({e}). Skipping AI analysis — deterministic results still available.")
 
     # Build full EDA report text
     eda_lines = [
@@ -200,6 +199,7 @@ def run_da_agent(
     eda_report = "\n".join(eda_lines)
 
     # 7. Generate notebook
+    progress("Generating notebook...")
     notebook_bytes = generate_notebook(
         dataset_path=dataset_path,
         stat_block=stat_block,
@@ -207,11 +207,9 @@ def run_da_agent(
         data_quality_report=data_quality_report,
         llm_analysis=llm_analysis,
     )
-    print("Notebook generated.")
 
-    print("=" * 60)
-    print("  DA AGENT COMPLETE")
-    print("=" * 60)
+    total = _elapsed()
+    progress(f"DA Agent complete ({total})")
 
     return {
         "dataframe": df,
@@ -224,4 +222,5 @@ def run_da_agent(
         "llm_analysis": llm_analysis,
         "llm_error": llm_error,
         "notebook_bytes": notebook_bytes,
+        "elapsed": total,
     }

@@ -21,6 +21,7 @@ def get_da_llm(
     model_name: str | None = None,
     temperature: float = 0.2,
     api_key: str | None = None,
+    timeout: int = 90,
 ):
     """Return an LLM instance for the DA Agent.
 
@@ -36,6 +37,8 @@ def get_da_llm(
     api_key : str | None
         OpenRouter API key passed directly (not stored). Falls back to
         env var / Streamlit secrets if not provided.
+    timeout : int
+        Request timeout in seconds.
     """
     if not local_mode:
         from app.llm.llm_provider import get_llm
@@ -43,6 +46,7 @@ def get_da_llm(
             model_name=model_name or "mistralai/mistral-small-3.1-24b-instruct",
             temperature=temperature,
             api_key=api_key,
+            timeout=timeout,
         )
 
     # --- Ollama (local) ---
