@@ -50,3 +50,35 @@ def build_graph():
     )
 
     return graph.compile()
+
+
+def build_ds_only_graph():
+    """Build graph starting from feature_engineering (no EDA/cleaning nodes).
+
+    Used when the DA Agent has already handled EDA + cleaning and we want
+    to hand off directly to the DS Agent's modeling loop.
+    """
+    graph = StateGraph(AgentState)
+
+    graph.add_node("feature_engineering", feature_engineering_node)
+    graph.add_node("modeling", modeling_node)
+    graph.add_node("evaluation", evaluation_node)
+    graph.add_node("critic", critic_node)
+    graph.add_node("decision", decision_node)
+
+    graph.set_entry_point("feature_engineering")
+    graph.add_edge("feature_engineering", "modeling")
+    graph.add_edge("modeling", "evaluation")
+    graph.add_edge("evaluation", "critic")
+    graph.add_edge("critic", "decision")
+
+    graph.add_conditional_edges(
+        "decision",
+        _route_decision,
+        {
+            "feature_engineering": "feature_engineering",
+            END: END,
+        },
+    )
+
+    return graph.compile()

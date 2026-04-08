@@ -20,6 +20,10 @@ class AgentState(TypedDict):
     feature_report: str
     model_report: str
     evaluation_report: str
+    confusion_matrix: Any
     history: list
     should_continue: bool
     recommendations: dict
+    instructions: dict          # Parsed instructions from user (empty dict if none)
+    pipeline_mode: str          # "full" | "lite"
+    da_agent_result: dict       # Output from DA Agent (stat_block, cleaning, etc.)

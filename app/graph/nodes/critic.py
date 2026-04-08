@@ -98,6 +98,47 @@ def _validate_recommendations(raw: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Instructions threading
+# ---------------------------------------------------------------------------
+
+def _format_instructions_context(state: AgentState) -> str:
+    """Build an instruction-context block for the LLM prompts."""
+    instructions = state.get("instructions") or {}
+    if not instructions:
+        return ""
+
+    parts: list[str] = []
+
+    priorities = instructions.get("priorities", [])
+    if priorities:
+        parts.append("User priorities: " + "; ".join(priorities))
+
+    features = instructions.get("features", {})
+    must = features.get("must_include", [])
+    avoid_f = features.get("avoid", [])
+    if must:
+        parts.append("User wants these features included: " + ", ".join(must))
+    if avoid_f:
+        parts.append("User wants to avoid these features: " + ", ".join(avoid_f))
+
+    models = instructions.get("models", {})
+    preferred = models.get("preferred", [])
+    avoid_m = models.get("avoid", [])
+    notes = models.get("notes", [])
+    if preferred:
+        parts.append("User prefers these models: " + ", ".join(preferred))
+    if avoid_m:
+        parts.append("User wants to avoid these models: " + ", ".join(avoid_m))
+    if notes:
+        parts.append("Model notes: " + "; ".join(notes))
+
+    if not parts:
+        return ""
+
+    return "\n\n## User Instructions\n" + "\n".join(f"- {p}" for p in parts)
+
+
+# ---------------------------------------------------------------------------
 # Prompt builders
 # ---------------------------------------------------------------------------
 
@@ -150,7 +191,7 @@ the model's performance. Focus on:
 4. Class imbalance handling
 
 Keep your response concise (3-5 bullet points).
-"""
+{_format_instructions_context(state)}"""
 
 
 def _build_recommendation_prompt(state: AgentState) -> str:
@@ -227,7 +268,7 @@ Rules:
 - should_stop: true only if F1 >= 0.85 or further improvement is unlikely
 - If recall is low, prioritize features and models that improve recall
 - If precision is low, consider features that reduce false positives
-"""
+{_format_instructions_context(state)}"""
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +335,8 @@ def critic_node(state: AgentState) -> dict:
             "model_obj": model_obj,
             "feature_names": feature_names,
             "recommendations": recommendations,
+            "confusion_matrix": state.get("confusion_matrix"),
+            "evaluation_report": state.get("evaluation_report", ""),
         }
     ]
 

@@ -38,9 +38,13 @@ def run_agent(
         "feature_report": "",
         "model_report": "",
         "evaluation_report": "",
+        "confusion_matrix": None,
         "history": [],
         "should_continue": True,
         "recommendations": {},
+        "instructions": {},
+        "pipeline_mode": "full",
+        "da_agent_result": {},
     }
 
     result = graph.invoke(initial_state)

@@ -82,7 +82,23 @@ def modeling_node(state: AgentState) -> dict:
 
     if not model_config or "model_name" not in model_config:
         model_config = dict(DEFAULT_MODEL_CONFIG)
-        print("Using default model config (no LLM recommendations yet)")
+        # Apply instruction overrides for default model selection
+        instructions = state.get("instructions") or {}
+        model_instructions = instructions.get("models", {})
+        preferred = model_instructions.get("preferred", [])
+        if preferred:
+            # Use first preferred model if it's valid
+            from app.graph.nodes.critic import VALID_MODELS
+            for pref in preferred:
+                if pref in VALID_MODELS:
+                    model_config["model_name"] = pref
+                    model_config["hyperparameters"] = {}
+                    print(f"Using preferred model from instructions: {pref}")
+                    break
+            else:
+                print("Using default model config (no LLM recommendations yet)")
+        else:
+            print("Using default model config (no LLM recommendations yet)")
 
     model_name = model_config["model_name"]
     hyperparameters = model_config.get("hyperparameters", {})

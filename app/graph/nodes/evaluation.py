@@ -29,16 +29,18 @@ def evaluation_node(state: AgentState) -> dict:
         "f1": round(f1_score(y_test, y_pred, zero_division=0), 4),
     }
 
+    cm = confusion_matrix(y_test, y_pred)
+
     lines = [
         f"Accuracy:  {metrics['accuracy']}",
         f"Precision: {metrics['precision']}",
         f"Recall:    {metrics['recall']}",
         f"F1 Score:  {metrics['f1']}",
         f"\nClassification Report:\n{classification_report(y_test, y_pred, zero_division=0)}",
-        f"Confusion Matrix:\n{confusion_matrix(y_test, y_pred)}",
+        f"Confusion Matrix:\n{cm}",
     ]
 
     report = "\n".join(lines)
     print(report)
 
-    return {"metrics": metrics, "evaluation_report": report}
+    return {"metrics": metrics, "evaluation_report": report, "confusion_matrix": cm.tolist()}

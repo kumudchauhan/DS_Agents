@@ -175,6 +175,25 @@ def feature_engineering_node(state: AgentState) -> dict:
     else:
         lines.append(f"Using LLM-recommended features ({len(requested)})")
 
+    # Apply instruction overrides (iteration 0 only, before LLM has spoken).
+    instructions = state.get("instructions") or {}
+    feat_instructions = instructions.get("features", {})
+    if feat_instructions:
+        must_include = feat_instructions.get("must_include", [])
+        avoid = feat_instructions.get("avoid", [])
+        # Merge must_include features that aren't already requested
+        for f in must_include:
+            if f in FEATURE_REGISTRY and f not in requested:
+                requested.append(f)
+                lines.append(f"Added from instructions: {f}")
+        # Remove avoided features
+        if avoid:
+            before = len(requested)
+            requested = [f for f in requested if f not in avoid]
+            removed = before - len(requested)
+            if removed:
+                lines.append(f"Removed {removed} features per instructions (avoid: {', '.join(avoid)})")
+
     # Apply features from registry.
     for name in requested:
         fn = FEATURE_REGISTRY.get(name)

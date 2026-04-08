@@ -7,6 +7,7 @@ import streamlit as st
 
 from app.ui.pipeline_runner import (
     run_pipeline,
+    run_pipeline_from_da,
     ANALYSIS_NODES,
     MODELING_NODES,
     NODE_LABELS,
@@ -19,8 +20,10 @@ from app.ui.components import (
     render_feature_importance,
     render_iteration_metrics_chart,
     render_key_takeaways,
+    render_model_interpretation,
 )
 from app.ui.qa import ask_question_about_data
+from app.ui.instructions_parser import parse_instructions
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -38,6 +41,9 @@ _DEFAULTS = {
     "agent_result": None,
     "agent_history": [],
     "qa_messages": [],
+    "da_agent_result": None,
+    "instructions": {},
+    "pipeline_mode": "full",
 }
 for key, val in _DEFAULTS.items():
     if key not in st.session_state:
@@ -58,6 +64,84 @@ def _step_line(label: str, status: str) -> str:
 
 
 # ===================================================================
+# Sidebar — Pipeline Mode, Instructions, LLM Provider
+# ===================================================================
+with st.sidebar:
+    st.header("Pipeline Settings")
+
+    pipeline_mode = st.radio(
+        "Pipeline Mode",
+        options=["Quick Explore (DA Agent)", "Full Pipeline"],
+        index=0 if st.session_state.pipeline_mode == "lite" else 1,
+        help="Quick Explore: fast data analysis, no modeling. "
+             "Full Pipeline: analysis + iterative modeling with LLM critic.",
+    )
+    st.session_state.pipeline_mode = "lite" if "Quick" in pipeline_mode else "full"
+
+    st.divider()
+
+    # Instructions input
+    st.subheader("Instructions (optional)")
+    instructions_method = st.radio(
+        "Provide instructions via:",
+        options=["Paste text", "Upload .md file"],
+        label_visibility="collapsed",
+    )
+
+    instructions_text = ""
+    if instructions_method == "Upload .md file":
+        md_file = st.file_uploader("Upload instructions.md", type=["md", "txt"])
+        if md_file is not None:
+            instructions_text = md_file.getvalue().decode("utf-8")
+    else:
+        instructions_text = st.text_area(
+            "Paste instructions markdown",
+            height=150,
+            placeholder=(
+                "## Priorities\n"
+                "- Recall matters more than precision\n\n"
+                "## Features\n"
+                "- Must include: log_amount, account_age_days\n"
+                "- Avoid: amount_squared\n\n"
+                "## Models\n"
+                "- Preferred: GradientBoostingClassifier"
+            ),
+        )
+
+    if instructions_text:
+        st.session_state.instructions = parse_instructions(instructions_text)
+        with st.expander("Parsed instructions", expanded=False):
+            parsed = st.session_state.instructions
+            if parsed.get("priorities"):
+                st.markdown("**Priorities:** " + ", ".join(parsed["priorities"]))
+            feat = parsed.get("features", {})
+            if feat.get("must_include"):
+                st.markdown("**Must include:** " + ", ".join(feat["must_include"]))
+            if feat.get("avoid"):
+                st.markdown("**Avoid features:** " + ", ".join(feat["avoid"]))
+            models = parsed.get("models", {})
+            if models.get("preferred"):
+                st.markdown("**Preferred models:** " + ", ".join(models["preferred"]))
+            if models.get("avoid"):
+                st.markdown("**Avoid models:** " + ", ".join(models["avoid"]))
+            if parsed.get("visualization"):
+                st.markdown("**Viz prefs:** " + ", ".join(parsed["visualization"]))
+    else:
+        st.session_state.instructions = {}
+
+    # LLM provider for DA Agent
+    if st.session_state.pipeline_mode == "lite":
+        st.divider()
+        st.subheader("LLM Provider (DA Agent)")
+        llm_provider = st.radio(
+            "LLM Provider",
+            options=["Ollama (local)", "OpenRouter (cloud)"],
+            label_visibility="collapsed",
+            help="Ollama runs locally. OpenRouter requires an API key.",
+        )
+        st.session_state["da_local_mode"] = "Ollama" in llm_provider
+
+# ===================================================================
 # Section 1 — Upload Dataset
 # ===================================================================
 st.header("1. Upload Dataset")
@@ -73,6 +157,7 @@ if uploaded_file is not None:
         st.session_state.uploaded_df = pd.read_csv(tmp.name)
         st.session_state.agent_result = None
         st.session_state.agent_history = []
+        st.session_state.da_agent_result = None
 
     df = st.session_state.uploaded_df
 
@@ -91,116 +176,219 @@ else:
     st.info("Upload a CSV file to get started.")
 
 # ===================================================================
-# Section 2 — Run Pipeline
+# Section 2 — Run Pipeline (mode-dependent)
 # ===================================================================
 if st.session_state.dataset_path is not None:
     st.header("2. Run Pipeline")
 
-    max_iter = st.number_input(
-        "Max iterations", min_value=1, max_value=10, value=3, step=1
-    )
+    # ── Quick Explore (DA Agent) ──────────────────────────────────
+    if st.session_state.pipeline_mode == "lite":
+        if st.button("Run Quick Explore"):
+            with st.status("Running DA Agent analysis...", expanded=True) as status:
+                from da_agent.agent import run_da_agent
 
-    if st.button("Run Pipeline"):
-        # -- Reserve layout slots so analysis results appear ABOVE the
-        #    modeling progress tracker.
-        analysis_status = st.status("Running data analysis...", expanded=True)
-        analysis_steps = analysis_status.empty()
+                da_result = run_da_agent(
+                    dataset_path=st.session_state.dataset_path,
+                    target_column=st.session_state.target_column,
+                    instructions=st.session_state.instructions or None,
+                    local_mode=st.session_state.get("da_local_mode", True),
+                )
+                st.session_state.da_agent_result = da_result
+                # Preserve dataset_path for handoff
+                da_result["dataset_path"] = st.session_state.dataset_path
+                status.update(label="DA Agent analysis complete", state="complete")
+            st.rerun()
 
-        exploration_container = st.container()
+    # ── Full Pipeline ─────────────────────────────────────────────
+    else:
+        max_iter = st.number_input(
+            "Max iterations", min_value=1, max_value=10, value=3, step=1
+        )
 
-        modeling_status = st.status("Waiting for analysis to finish...", expanded=False)
-        modeling_steps = modeling_status.empty()
+        run_full = st.button("Run Pipeline")
+        run_from_da = False
+        if st.session_state.da_agent_result is not None:
+            run_from_da = st.button("Continue from DA Agent (skip EDA/Cleaning)")
 
-        # -- Tracking state --
-        analysis_finished: set[str] = set()
-        modeling_finished_iter: set[str] = set()
-        current_iter = 0
-        analysis_rendered = False
-        result_state = None
+        if run_full or run_from_da:
+            # -- Reserve layout slots so analysis results appear ABOVE the
+            #    modeling progress tracker.
+            if run_full:
+                analysis_status = st.status("Running data analysis...", expanded=True)
+                analysis_steps = analysis_status.empty()
+            else:
+                analysis_status = None
+                analysis_steps = None
 
-        for update in run_pipeline(
-            dataset_path=st.session_state.dataset_path,
-            target_column=st.session_state.target_column,
-            max_iterations=max_iter,
-        ):
-            node = update["node"]
-            phase = update["phase"]
-            result_state = update["state"]
+            exploration_container = st.container()
 
-            # ── Analysis phase ────────────────────────────────────
-            if phase == "analysis":
-                analysis_finished.add(node)
-                lines = []
-                for n in ANALYSIS_NODES:
+            modeling_status = st.status(
+                "Waiting for analysis to finish..." if run_full else "Running model pipeline...",
+                expanded=not run_full,
+            )
+            modeling_steps = modeling_status.empty()
+
+            # -- Tracking state --
+            analysis_finished: set[str] = set()
+            modeling_finished_iter: set[str] = set()
+            current_iter = 0
+            analysis_rendered = False
+            result_state = None
+
+            # Choose the right pipeline
+            if run_from_da:
+                pipeline_gen = run_pipeline_from_da(
+                    da_result=st.session_state.da_agent_result,
+                    target_column=st.session_state.target_column,
+                    max_iterations=max_iter,
+                    instructions=st.session_state.instructions or None,
+                )
+                modeling_status.update(
+                    label="Running model pipeline...",
+                    state="running",
+                    expanded=True,
+                )
+            else:
+                pipeline_gen = run_pipeline(
+                    dataset_path=st.session_state.dataset_path,
+                    target_column=st.session_state.target_column,
+                    max_iterations=max_iter,
+                    instructions=st.session_state.instructions or None,
+                )
+
+            for update in pipeline_gen:
+                node = update["node"]
+                phase = update["phase"]
+                result_state = update["state"]
+
+                # ── Analysis phase ────────────────────────────────────
+                if phase == "analysis":
+                    analysis_finished.add(node)
+                    lines = []
+                    for n in ANALYSIS_NODES:
+                        lbl = NODE_LABELS[n]
+                        if n in analysis_finished:
+                            lines.append(_step_line(lbl, "done"))
+                        else:
+                            lines.append(_step_line(lbl, "pending"))
+                    if analysis_steps is not None:
+                        analysis_steps.markdown("\n\n".join(lines))
+
+                    # Once cleaning is done, render exploration results immediately
+                    if node == "cleaning" and not analysis_rendered:
+                        if analysis_status is not None:
+                            analysis_status.update(
+                                label="Data analysis complete",
+                                state="complete",
+                                expanded=False,
+                            )
+                        with exploration_container:
+                            st.header("3. Data Exploration")
+                            tab_quality, tab_viz = st.tabs(
+                                ["Data Quality Report", "Visualizations"]
+                            )
+                            with tab_quality:
+                                render_data_quality_summary(
+                                    st.session_state.uploaded_df,
+                                    st.session_state.target_column,
+                                )
+                            with tab_viz:
+                                render_eda_visualizations()
+                        analysis_rendered = True
+
+                        # Activate modeling tracker
+                        modeling_status.update(
+                            label="Running model pipeline...",
+                            state="running",
+                            expanded=True,
+                        )
+                    continue
+
+                # ── Modeling phase ────────────────────────────────────
+                iteration = update.get("iteration", 0)
+                if iteration != current_iter:
+                    current_iter = iteration
+                    modeling_finished_iter = set()
+
+                modeling_finished_iter.add(node)
+
+                lines = [f"**Iteration {current_iter}**"]
+                for n in MODELING_NODES:
                     lbl = NODE_LABELS[n]
-                    if n in analysis_finished:
+                    if n in modeling_finished_iter:
                         lines.append(_step_line(lbl, "done"))
                     else:
                         lines.append(_step_line(lbl, "pending"))
-                analysis_steps.markdown("\n\n".join(lines))
+                modeling_steps.markdown("\n\n".join(lines))
 
-                # Once cleaning is done, render exploration results immediately
-                if node == "cleaning" and not analysis_rendered:
-                    analysis_status.update(
-                        label="Data analysis complete",
-                        state="complete",
-                        expanded=False,
-                    )
-                    with exploration_container:
-                        st.header("3. Data Exploration")
-                        tab_quality, tab_viz = st.tabs(
-                            ["Data Quality Report", "Visualizations"]
-                        )
-                        with tab_quality:
-                            render_data_quality_summary(
-                                st.session_state.uploaded_df,
-                                st.session_state.target_column,
-                            )
-                        with tab_viz:
-                            render_eda_visualizations()
-                    analysis_rendered = True
+            # ── Pipeline finished ─────────────────────────────────────
+            modeling_status.update(
+                label="Model pipeline complete",
+                state="complete",
+                expanded=False,
+            )
 
-                    # Activate modeling tracker
-                    modeling_status.update(
-                        label="Running model pipeline...",
-                        state="running",
-                        expanded=True,
-                    )
-                continue
+            if result_state:
+                st.session_state.agent_result = result_state
+                st.session_state.agent_history = result_state.get("history", [])
+            st.rerun()
 
-            # ── Modeling phase ────────────────────────────────────
-            iteration = update.get("iteration", 0)
-            if iteration != current_iter:
-                current_iter = iteration
-                modeling_finished_iter = set()
+# ===================================================================
+# Section: DA Agent Results (Quick Explore)
+# ===================================================================
+if st.session_state.da_agent_result is not None:
+    da = st.session_state.da_agent_result
 
-            modeling_finished_iter.add(node)
+    st.header("3. Data Exploration (DA Agent)")
 
-            lines = [f"**Iteration {current_iter}**"]
-            for n in MODELING_NODES:
-                lbl = NODE_LABELS[n]
-                if n in modeling_finished_iter:
-                    lines.append(_step_line(lbl, "done"))
-                else:
-                    lines.append(_step_line(lbl, "pending"))
-            modeling_steps.markdown("\n\n".join(lines))
+    tab_profile, tab_quality, tab_viz, tab_cleaning, tab_llm = st.tabs([
+        "Data Profile", "Data Quality Report", "Visualizations",
+        "Cleaning Summary", "AI Analysis",
+    ])
 
-        # ── Pipeline finished ─────────────────────────────────────
-        modeling_status.update(
-            label="Model pipeline complete",
-            state="complete",
-            expanded=False,
+    with tab_profile:
+        st.markdown(da.get("stat_block", "_No stat block available._"))
+
+    with tab_quality:
+        render_data_quality_summary(
+            st.session_state.uploaded_df, st.session_state.target_column
         )
 
-        if result_state:
-            st.session_state.agent_result = result_state
-            st.session_state.agent_history = result_state.get("history", [])
-        st.rerun()
+    with tab_viz:
+        render_eda_visualizations()
+
+    with tab_cleaning:
+        render_cleaning_summary(da.get("cleaning_report", ""))
+
+    with tab_llm:
+        llm_analysis = da.get("llm_analysis")
+        if llm_analysis:
+            st.markdown("**AI-Generated Analysis Script:**")
+            st.code(llm_analysis, language="python")
+        else:
+            st.info("No LLM was available. Deterministic analysis results are shown in other tabs.")
+
+    # Download notebook
+    notebook_bytes = da.get("notebook_bytes")
+    if notebook_bytes:
+        st.download_button(
+            "Download Analysis (.ipynb)",
+            data=notebook_bytes,
+            file_name="da_agent_analysis.ipynb",
+            mime="application/x-ipynb+json",
+        )
+
+    # Handoff button
+    if st.session_state.pipeline_mode == "lite":
+        st.divider()
+        if st.button("Continue to Full Pipeline ->"):
+            st.session_state.pipeline_mode = "full"
+            st.rerun()
 
 # ===================================================================
-# Section 3 — Data Exploration (persisted after pipeline run)
+# Section 3 — Data Exploration (persisted after full pipeline run)
 # ===================================================================
-if st.session_state.agent_result is not None:
+if st.session_state.agent_result is not None and st.session_state.da_agent_result is None:
     st.header("3. Data Exploration")
     tab_quality, tab_viz = st.tabs(["Data Quality Report", "Visualizations"])
     with tab_quality:
@@ -244,10 +432,15 @@ if st.session_state.agent_history:
 if st.session_state.agent_history:
     st.header("5. Model Results")
 
-    tab_metrics, tab_takeaways = st.tabs(["Metrics Comparison", "Key Takeaways"])
+    tab_metrics, tab_interpretation, tab_takeaways = st.tabs([
+        "Metrics Comparison", "Model Interpretation", "Key Takeaways"
+    ])
 
     with tab_metrics:
         render_iteration_metrics_chart(st.session_state.agent_history)
+
+    with tab_interpretation:
+        render_model_interpretation(st.session_state.agent_history)
 
     with tab_takeaways:
         render_key_takeaways(st.session_state.agent_history)

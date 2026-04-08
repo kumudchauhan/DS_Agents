@@ -241,27 +241,28 @@ def render_cleaning_summary(cleaning_report: str) -> None:
         )
 
 
+_FEATURE_RATIONALE = {
+    "account_age_days": "Newer accounts may have higher fraud risk",
+    "hour_of_day": "Fraud patterns vary by time of day",
+    "day_of_week": "Weekend vs weekday transaction patterns differ",
+    "amount_to_avg_ratio": "Unusually high ratio signals anomalous spending",
+    "is_high_amount": "Transactions above 95th percentile are higher risk",
+    "log_amount": "Log transform reduces outlier impact on model",
+    "is_new_account": "Accounts <30 days old are higher fraud risk",
+    "is_night_txn": "Late-night transactions correlate with fraud",
+    "amount_deviation": "Large deviation from average signals anomaly",
+    "high_velocity": "4+ transactions in 24h suggests automated fraud",
+    "amount_squared": "Captures non-linear amount effects",
+    "amount_x_velocity": "Interaction: high amount + high velocity = risky",
+    "is_weekend": "Weekend transactions may have different fraud patterns",
+    "txn_per_avg_ratio": "Transaction frequency relative to spending average",
+}
+
+
 def render_feature_summary(feature_report: str, iteration: int) -> None:
     """Render feature engineering steps with context on why each was added."""
     if not feature_report:
         return
-
-    _FEATURE_RATIONALE = {
-        "account_age_days": "Newer accounts may have higher fraud risk",
-        "hour_of_day": "Fraud patterns vary by time of day",
-        "day_of_week": "Weekend vs weekday transaction patterns differ",
-        "amount_to_avg_ratio": "Unusually high ratio signals anomalous spending",
-        "is_high_amount": "Transactions above 95th percentile are higher risk",
-        "log_amount": "Log transform reduces outlier impact on model",
-        "is_new_account": "Accounts <30 days old are higher fraud risk",
-        "is_night_txn": "Late-night transactions correlate with fraud",
-        "amount_deviation": "Large deviation from average signals anomaly",
-        "high_velocity": "4+ transactions in 24h suggests automated fraud",
-        "amount_squared": "Captures non-linear amount effects",
-        "amount_x_velocity": "Interaction: high amount + high velocity = risky",
-        "is_weekend": "Weekend transactions may have different fraud patterns",
-        "txn_per_avg_ratio": "Transaction frequency relative to spending average",
-    }
 
     is_llm_driven = "LLM-recommended" in feature_report
 
@@ -583,3 +584,330 @@ def render_key_takeaways(history: list) -> None:
         st.subheader("Observations")
         for msg in insights:
             st.info(msg, icon="\U0001f4a1")
+
+
+# ---------------------------------------------------------------------------
+# Section: Model Interpretation & Best-Model Recommendation
+# ---------------------------------------------------------------------------
+
+def _get_top_features(model_obj, feature_names: list, n: int = 5):
+    """Extract top-n feature importances from a fitted model."""
+    importances = None
+    if hasattr(model_obj, "feature_importances_"):
+        importances = model_obj.feature_importances_
+    elif hasattr(model_obj, "coef_"):
+        importances = np.abs(model_obj.coef_[0])
+
+    if importances is None:
+        return []
+
+    k = min(len(feature_names), len(importances))
+    names = feature_names[:k]
+    vals = importances[:k]
+    idx = np.argsort(vals)[::-1][:n]
+    return [(names[i], float(vals[i])) for i in idx]
+
+
+def render_model_interpretation(history: list) -> None:
+    """Business-language model interpretation with best-model recommendation,
+    per-iteration breakdowns, and trade-off analysis."""
+    if not history:
+        st.info("No model results yet. Run the pipeline first.")
+        return
+
+    # ==================================================================
+    # A. Best Model Recommendation
+    # ==================================================================
+    st.subheader("Best Model Recommendation")
+
+    # Pick best: F1 first, recall as tie-breaker, reject recall==0
+    candidates = [h for h in history if (h.get("recall") or 0) > 0]
+    if not candidates:
+        candidates = list(history)  # all have 0 recall, fall back to full list
+
+    best = max(candidates, key=lambda h: (h.get("f1", 0) or 0, h.get("recall", 0) or 0))
+
+    best_model_name = (best.get("model") or "").split("\n")[0].replace("Model: ", "")
+    best_recall = best.get("recall", 0) or 0
+    best_prec = best.get("precision", 0) or 0
+    best_f1 = best.get("f1", 0) or 0
+    best_acc = best.get("accuracy", 0) or 0
+
+    rec_lines = [
+        f"**Recommended: {best_model_name} — Iteration {best['iteration']}**",
+        f"Detects {best_recall:.0%} of fraud | F1: {best_f1:.4f} "
+        f"| Precision: {best_prec:.0%} | Accuracy: {best_acc:.0%}",
+    ]
+
+    # Build "why" reasoning
+    others_zero_recall = [
+        h for h in history
+        if h["iteration"] != best["iteration"] and (h.get("recall") or 0) == 0
+    ]
+    if others_zero_recall and best_recall > 0:
+        other_names = ", ".join(
+            (h.get("model") or "").split("\n")[0].replace("Model: ", "")
+            for h in others_zero_recall
+        )
+        rec_lines.append(
+            f"**Why:** Despite lower accuracy, this is the only model that "
+            f"identifies fraud. The {other_names} "
+            f"(with {others_zero_recall[0].get('accuracy', 0):.0%} accuracy) "
+            f"catches 0% of fraud cases."
+        )
+    elif best_f1 > 0:
+        rec_lines.append(
+            f"**Why:** Highest F1 score ({best_f1:.4f}) among all iterations, "
+            f"indicating the best balance of precision and recall."
+        )
+
+    st.success("\n\n".join(rec_lines))
+
+    # Improvement suggestions
+    suggestions = []
+    if best_recall > 0.3 and best_prec < 0.2:
+        suggestions.append(
+            "High recall but low precision — raise the classification threshold "
+            "or add features that reduce false positives."
+        )
+    if best_recall == 0:
+        suggestions.append(
+            "Model ignores the minority class entirely — try SMOTE, "
+            "class_weight adjustments, or a different model."
+        )
+    if best_f1 < 0.5:
+        suggestions.append(
+            "F1 is still below 0.5 — more iterations or a fundamentally "
+            "different approach (e.g., ensemble, resampling) is recommended."
+        )
+    if best_acc > 0.85 and best_f1 < 0.15:
+        suggestions.append(
+            "High accuracy with near-zero F1 signals the accuracy paradox — "
+            "the model is predicting the majority class. Focus on recall-oriented "
+            "metrics and class-imbalance techniques."
+        )
+
+    if suggestions:
+        st.markdown("**Improvement Suggestions:**")
+        for s in suggestions:
+            st.info(s)
+
+    st.divider()
+
+    # ==================================================================
+    # B. Per-Iteration Breakdown
+    # ==================================================================
+    st.subheader("Per-Iteration Breakdown")
+
+    for h in history:
+        it = h["iteration"]
+        model_name = (h.get("model") or "").split("\n")[0].replace("Model: ", "")
+        f1 = h.get("f1", 0) or 0
+        acc = h.get("accuracy", 0) or 0
+        prec = h.get("precision", 0) or 0
+        rec = h.get("recall", 0) or 0
+        is_best = (h["iteration"] == best["iteration"])
+        label = f"Iteration {it} — {model_name}"
+        if is_best:
+            label += " (Best)"
+
+        with st.expander(label, expanded=is_best):
+            # -- Metrics in plain English --
+            st.markdown("**Metrics in Plain English**")
+
+            if rec > 0:
+                st.markdown(
+                    f"- **Recall {rec:.2f}** — Detects **{rec:.0%}** of fraud "
+                    f"(misses {1 - rec:.0%})"
+                )
+            else:
+                st.markdown(
+                    "- **Recall 0.00** — Detects **none** of the fraud cases"
+                )
+
+            if prec > 0:
+                false_alarm_pct = 1 - prec
+                st.markdown(
+                    f"- **Precision {prec:.2f}** — Of all fraud alerts, "
+                    f"**{prec:.0%}** are real ({false_alarm_pct:.0%} false alarms)"
+                )
+            else:
+                if rec > 0:
+                    st.markdown(
+                        "- **Precision 0.00** — Every fraud alert is a false alarm"
+                    )
+                else:
+                    st.markdown(
+                        "- **Precision 0.00** — No fraud alerts were made"
+                    )
+
+            # Accuracy with context
+            if acc > 0.85 and f1 < 0.15:
+                st.markdown(
+                    f"- **Accuracy {acc:.0%}** — Misleading with a low fraud rate; "
+                    f"predicting 'not fraud' for everything would give similar accuracy"
+                )
+            else:
+                st.markdown(f"- **Accuracy {acc:.0%}**")
+
+            # -- Confusion matrix breakdown --
+            cm = h.get("confusion_matrix")
+            if cm and len(cm) == 2 and len(cm[0]) == 2 and len(cm[1]) == 2:
+                tn, fp = cm[0][0], cm[0][1]
+                fn, tp = cm[1][0], cm[1][1]
+
+                st.markdown("**Confusion Matrix**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        "True Positives (TP)",
+                        tp,
+                        help=f"Correctly flagged {tp} fraudulent transactions",
+                    )
+                    st.metric(
+                        "False Negatives (FN)",
+                        fn,
+                        help=f"Missed {fn} fraudulent transactions",
+                    )
+                with col2:
+                    st.metric(
+                        "False Positives (FP)",
+                        fp,
+                        help=f"False alarms on {fp} legitimate transactions",
+                    )
+                    st.metric(
+                        "True Negatives (TN)",
+                        tn,
+                        help=f"Correctly cleared {tn} legitimate transactions",
+                    )
+
+                st.caption(
+                    f"Correctly flagged **{tp}** fraud | "
+                    f"Missed **{fn}** fraud | "
+                    f"**{fp}** false alarms | "
+                    f"**{tn}** correctly cleared"
+                )
+
+            # -- Top-5 feature drivers --
+            model_obj = h.get("model_obj")
+            feature_names = h.get("feature_names", [])
+            if model_obj is not None and feature_names:
+                top_features = _get_top_features(model_obj, feature_names, n=5)
+                if top_features:
+                    st.markdown("**Top Feature Drivers**")
+                    feat_rows = []
+                    for fname, fval in top_features:
+                        rationale = _FEATURE_RATIONALE.get(
+                            fname, "Derived from domain knowledge"
+                        )
+                        feat_rows.append({
+                            "Feature": f"`{fname}`",
+                            "Importance": f"{fval:.4f}",
+                            "Rationale": rationale,
+                        })
+                    st.dataframe(
+                        pd.DataFrame(feat_rows),
+                        width="stretch",
+                        hide_index=True,
+                    )
+
+    st.divider()
+
+    # ==================================================================
+    # C. Trade-Off Analysis
+    # ==================================================================
+    if len(history) > 1:
+        st.subheader("Trade-Off Analysis")
+
+        for h in history:
+            it = h["iteration"]
+            model_name = (h.get("model") or "").split("\n")[0].replace("Model: ", "")
+            f1 = h.get("f1", 0) or 0
+            acc = h.get("accuracy", 0) or 0
+            prec = h.get("precision", 0) or 0
+            rec = h.get("recall", 0) or 0
+
+            if rec > 0.3 and prec < 0.2:
+                st.markdown(
+                    f"- **Iteration {it}** ({model_name}) trades precision for "
+                    f"recall: catches {rec:.0%} of fraud but generates many "
+                    f"false alarms."
+                )
+            elif acc > 0.85 and rec == 0:
+                st.markdown(
+                    f"- **Iteration {it}** ({model_name}) has {acc:.0%} accuracy "
+                    f"but catches 0% of fraud — effectively useless for fraud "
+                    f"detection."
+                )
+            elif rec > 0 and prec > 0:
+                st.markdown(
+                    f"- **Iteration {it}** ({model_name}) detects {rec:.0%} of "
+                    f"fraud with {prec:.0%} precision (F1: {f1:.4f})."
+                )
+            else:
+                st.markdown(
+                    f"- **Iteration {it}** ({model_name}): Recall={rec:.2f}, "
+                    f"Precision={prec:.2f}, F1={f1:.4f}."
+                )
+
+        # Business context callout
+        st.info(
+            "In fraud detection, missing real fraud (low recall) is typically "
+            "costlier than investigating false alarms (low precision). A model "
+            "with lower accuracy but higher recall is often the better choice."
+        )
+
+        # Accuracy trap callout
+        any_trap = any(
+            (h.get("accuracy", 0) or 0) > 0.85 and (h.get("f1", 0) or 0) < 0.15
+            for h in history
+        )
+        if any_trap:
+            st.warning(
+                "**Accuracy Trap:** With a low fraud rate (~5%), predicting "
+                "'not fraud' for everything yields ~95% accuracy but zero fraud "
+                "detection. F1 and recall are the metrics that matter here."
+            )
+
+        # Feature importance changes across iterations
+        iter_top_features = []
+        for h in history:
+            model_obj = h.get("model_obj")
+            feature_names = h.get("feature_names", [])
+            if model_obj is not None and feature_names:
+                top = _get_top_features(model_obj, feature_names, n=5)
+                iter_top_features.append((h["iteration"], [f for f, _ in top]))
+
+        if len(iter_top_features) > 1:
+            st.markdown("**Feature Importance Changes**")
+            for i in range(1, len(iter_top_features)):
+                prev_it, prev_feats = iter_top_features[i - 1]
+                curr_it, curr_feats = iter_top_features[i]
+                prev_set = set(prev_feats)
+                curr_set = set(curr_feats)
+                added = curr_set - prev_set
+                removed = prev_set - curr_set
+                if added or removed:
+                    parts = []
+                    if added:
+                        parts.append(
+                            f"new top features: **{', '.join(added)}**"
+                        )
+                    if removed:
+                        parts.append(
+                            f"dropped from top: **{', '.join(removed)}**"
+                        )
+                    # Check if F1 improved or regressed
+                    prev_h = history[i - 1]
+                    curr_h = history[i]
+                    prev_f1 = prev_h.get("f1", 0) or 0
+                    curr_f1 = curr_h.get("f1", 0) or 0
+                    direction = "improved" if curr_f1 > prev_f1 else "regressed"
+                    st.markdown(
+                        f"- Iter {prev_it} to {curr_it}: {'; '.join(parts)} "
+                        f"(F1 {direction}: {prev_f1:.4f} -> {curr_f1:.4f})"
+                    )
+                else:
+                    st.markdown(
+                        f"- Iter {prev_it} to {curr_it}: top-5 features unchanged."
+                    )
