@@ -11,13 +11,15 @@ Upload a CSV, pick a target column, and the agent will:
 - Perform exploratory data analysis (EDA) with visualizations
 - Generate a data quality report with ranked issues
 - Clean and preprocess the dataset
-- Engineer features from a registry of 14 safe transforms
-- Train and evaluate models from a pool of 4 classifiers
+- Engineer features from a registry of safe transforms
+- Train and evaluate models from a pool of algorithms
 - Use an **LLM critic** to analyze results and recommend improvements
 - **Loop** — applying the critic's recommendations to the next iteration
 - Surface diagnostic **Key Takeaways** (zero-recall, accuracy paradox, F1 regression, etc.)
 
-Built with **LangGraph** for stateful graph execution, **OpenRouter** for LLM access, and **Streamlit** for the interactive UI.
+Built with **LangGraph** for stateful graph execution,
+**OpenRouter** for LLM access, 
+and **Streamlit** for the interactive UI.
 
 ---
 
@@ -47,14 +49,14 @@ Iteration 0 uses sensible defaults (5 base features + LogisticRegression). Every
 ### Adaptive Pipeline (Not Hardcoded)
 
 The LLM critic produces **structured JSON recommendations** that control:
-- Which features to create (from 14 available transforms)
-- Which model to train (LogisticRegression, RandomForest, GradientBoosting, SVC)
+- Which features to use for modeling 
+- Which model to train (LogisticRegression, RandomForest, GradientBoosting, SVC etc.)
 - Hyperparameters (validated and clamped to safe ranges)
 - Whether to stop iterating
 
 ### Feature Registry
 
-14 safe, self-contained transforms — each handles its own column dependencies:
+*Note:* For the demo purposes, we use a dummy dataset transactions.csv. 14 safe, self-contained transforms — each handles its own column dependencies:
 
 | Feature | Description |
 |---|---|
@@ -86,7 +88,7 @@ All models use `class_weight="balanced"`. Scaling is auto-applied for models tha
 
 ### Key Takeaways (Diagnostics)
 
-The UI automatically surfaces actionable issues:
+The UI automatically surfaces actionable issues such as :
 - **Zero recall** — model classifies everything as negative (class-imbalance problem)
 - **Accuracy paradox** — high accuracy but near-zero F1 on imbalanced data
 - **F1 regression** — performance dropped between iterations
@@ -102,7 +104,6 @@ Six sections rendered during and after the pipeline run:
 3. **Data Exploration** — data quality report (ranked issues, missing values, target distribution) + EDA visualizations
 4. **Pipeline Details** — cleaning summary, feature engineering per iteration, feature importance charts
 5. **Model Results** — grouped metrics chart, comparison table, Key Takeaways diagnostics, LLM critic feedback
-6. **Q&A** — ask natural language questions about the dataset
 
 ---
 
@@ -198,12 +199,5 @@ The app is deployed on **Streamlit Community Cloud**:
 |---|---|
 | Orchestration | LangGraph (stateful graph execution) |
 | LLM | OpenRouter (Mistral Small 3.1 24B) |
-| ML | scikit-learn |
+| ML | scikit-learn, pandas, numpy, matplotlib |
 | UI | Streamlit |
-| Data | pandas, numpy, matplotlib |
-
----
-
-## Contributing
-
-Fork, extend, and make it your own. PRs welcome.
