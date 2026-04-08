@@ -22,7 +22,6 @@ from app.ui.components import (
     render_key_takeaways,
     render_model_interpretation,
 )
-from app.ui.qa import ask_question_about_data
 from app.ui.instructions_parser import parse_instructions
 
 # ---------------------------------------------------------------------------
@@ -40,7 +39,6 @@ _DEFAULTS = {
     "target_column": None,
     "agent_result": None,
     "agent_history": [],
-    "qa_messages": [],
     "da_agent_result": None,
     "instructions": {},
     "pipeline_mode": "full",
@@ -71,10 +69,10 @@ with st.sidebar:
 
     pipeline_mode = st.radio(
         "Pipeline Mode",
-        options=["Quick Explore (DA Agent)", "Full Pipeline"],
+        options=["Quick Explore (DA Agent)", "End-to-End Pipeline"],
         index=0 if st.session_state.pipeline_mode == "lite" else 1,
         help="Quick Explore: fast data analysis, no modeling. "
-             "Full Pipeline: analysis + iterative modeling with LLM critic.",
+             "End-to-End Pipeline: analysis + iterative modeling with LLM critic.",
     )
     st.session_state.pipeline_mode = "lite" if "Quick" in pipeline_mode else "full"
 
@@ -381,7 +379,7 @@ if st.session_state.da_agent_result is not None:
     # Handoff button
     if st.session_state.pipeline_mode == "lite":
         st.divider()
-        if st.button("Continue to Full Pipeline ->"):
+        if st.button("Continue to End-to-End Pipeline ->"):
             st.session_state.pipeline_mode = "full"
             st.rerun()
 
@@ -450,28 +448,3 @@ if st.session_state.agent_history:
         with st.expander(f"Iteration {h['iteration']} feedback"):
             st.markdown(h.get("feedback", "_No feedback recorded._"))
 
-# ===================================================================
-# Section 6 — Ask Questions (NL Q&A)
-# ===================================================================
-if st.session_state.uploaded_df is not None:
-    st.header("6. Ask Questions About Your Data")
-
-    for msg in st.session_state.qa_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    user_question = st.chat_input("Ask a question about the dataset...")
-
-    if user_question:
-        st.session_state.qa_messages.append({"role": "user", "content": user_question})
-        with st.chat_message("user"):
-            st.markdown(user_question)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                answer = ask_question_about_data(
-                    user_question, st.session_state.uploaded_df
-                )
-            st.markdown(answer)
-
-        st.session_state.qa_messages.append({"role": "assistant", "content": answer})
