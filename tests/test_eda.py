@@ -1,0 +1,58 @@
+"""Tests for app/graph/nodes/eda.py — _data_quality_report only (no file I/O)."""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from app.graph.nodes.eda import _data_quality_report
+
+
+@pytest.fixture()
+def basic_df():
+    """Small DataFrame for quality report tests."""
+    return pd.DataFrame({
+        "amount": [100.0, 200.0, 300.0, 400.0, 500.0],
+        "avg_amount_7d": [150.0, 250.0, 350.0, np.nan, 550.0],
+        "prior_transactions_24h": [1, 2, 3, 4, 5],
+        "merchant_category": ["food", "travel", "food", None, "travel"],
+        "is_fraud": [0.0, 1.0, 0.0, 1.0, 0.0],
+    })
+
+
+class TestDataQualityReport:
+    def test_basic_stats(self, basic_df):
+        report = _data_quality_report(basic_df, "is_fraud")
+        assert "Total rows: 5" in report
+        assert "Total columns: 5" in report
+
+    def test_missing_values(self, basic_df):
+        report = _data_quality_report(basic_df, "is_fraud")
+        assert "avg_amount_7d" in report
+        assert "1 (" in report  # 1 missing value
+
+    def test_no_missing(self):
+        df = pd.DataFrame({
+            "a": [1, 2, 3],
+            "b": [4, 5, 6],
+            "is_fraud": [0, 1, 0],
+        })
+        report = _data_quality_report(df, "is_fraud")
+        assert "No missing values" in report
+
+    def test_duplicates(self):
+        df = pd.DataFrame({
+            "a": [1, 1, 2],
+            "b": [3, 3, 4],
+            "is_fraud": [0, 0, 1],
+        })
+        report = _data_quality_report(df, "is_fraud")
+        assert "Duplicate rows: 1" in report
+
+    def test_target_quality_warnings(self):
+        df = pd.DataFrame({
+            "amount": [100, 200, 300],
+            "is_fraud": [0.0, 1.0, 2.0],
+        })
+        report = _data_quality_report(df, "is_fraud")
+        assert "WARNING" in report
+        assert "unexpected values" in report
