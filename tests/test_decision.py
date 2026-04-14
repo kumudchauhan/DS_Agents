@@ -18,44 +18,48 @@ def _make_decision_state(**overrides):
 
 class TestDecisionNode:
     def test_stop_on_max_iterations(self):
-        state = _make_decision_state(iteration=2, max_iterations=3, metrics={"f1": 0.50})
+        state = _make_decision_state(iteration=2, max_iterations=3,
+                                     metrics={"f1": 0.50})
         result = decision_node(state)
         assert result["should_continue"] is False
 
     def test_stop_on_f1_threshold(self):
-        state = _make_decision_state(iteration=0, metrics={"f1": 0.90})
+        state = _make_decision_state(iteration=0,
+                                     metrics={"f1": F1_THRESHOLD + 0.05})
         result = decision_node(state)
         assert result["should_continue"] is False
 
     def test_continue_below_threshold(self):
-        state = _make_decision_state(iteration=0, metrics={"f1": 0.50})
+        state = _make_decision_state(iteration=0,
+                                     metrics={"f1": F1_THRESHOLD - 0.20})
         result = decision_node(state)
         assert result["should_continue"] is True
 
     def test_llm_stop_ignored_at_iter_0(self):
         state = _make_decision_state(
             iteration=0,
-            metrics={"f1": 0.50},
+            metrics={"f1": F1_THRESHOLD - 0.20},
             recommendations={"should_stop": True},
         )
         result = decision_node(state)
-        # LLM stop not trusted at iteration 0
         assert result["should_continue"] is True
 
     def test_llm_stop_honored_at_iter_1(self):
         state = _make_decision_state(
             iteration=1,
-            metrics={"f1": 0.50},
+            metrics={"f1": F1_THRESHOLD - 0.20},
             recommendations={"should_stop": True, "reasoning": "Converged."},
         )
         result = decision_node(state)
         assert result["should_continue"] is False
 
     def test_iteration_always_incremented(self):
-        state = _make_decision_state(iteration=0, metrics={"f1": 0.50})
+        state = _make_decision_state(iteration=0,
+                                     metrics={"f1": F1_THRESHOLD - 0.20})
         result = decision_node(state)
         assert result["iteration"] == 1
 
-        state2 = _make_decision_state(iteration=2, max_iterations=3, metrics={"f1": 0.50})
+        state2 = _make_decision_state(iteration=2, max_iterations=3,
+                                      metrics={"f1": 0.50})
         result2 = decision_node(state2)
         assert result2["iteration"] == 3

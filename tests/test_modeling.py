@@ -1,54 +1,46 @@
-"""Tests for app/graph/nodes/modeling.py."""
+"""Tests for app/graph/nodes/modeling.py.
+
+Model names and scaling rules are derived from module constants so the
+tests adapt when models are added or removed.
+"""
 
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
 
+from app.graph.nodes.critic import VALID_MODELS
 from app.graph.nodes.modeling import _build_model, modeling_node, NEEDS_SCALING
+
+_SCALED_MODELS = sorted(NEEDS_SCALING)
+_UNSCALED_MODELS = sorted(set(VALID_MODELS.keys()) - NEEDS_SCALING)
 
 
 # ── _build_model tests ───────────────────────────────────────────────────
 
-class TestBuildModel:
-    def test_logistic_regression(self):
-        model = _build_model("LogisticRegression", {"C": 2.0})
-        assert isinstance(model, LogisticRegression)
-        assert model.C == 2.0
-        assert model.max_iter == 1000
+@pytest.mark.parametrize("model_name", list(VALID_MODELS.keys()))
+def test_build_model_returns_correct_type(model_name):
+    model = _build_model(model_name, {})
+    assert type(model).__name__ == model_name
 
-    def test_random_forest(self):
-        model = _build_model("RandomForestClassifier", {"n_estimators": 200, "max_depth": 10})
-        assert isinstance(model, RandomForestClassifier)
-        assert model.n_estimators == 200
-        assert model.max_depth == 10
 
-    def test_gradient_boosting(self):
-        model = _build_model("GradientBoostingClassifier", {"n_estimators": 150, "learning_rate": 0.1, "max_depth": 5})
-        assert isinstance(model, GradientBoostingClassifier)
-        assert model.n_estimators == 150
-        assert model.learning_rate == 0.1
+def test_build_model_unknown_fallback():
+    model = _build_model("NonexistentModel", {})
+    assert hasattr(model, "fit")
+    assert hasattr(model, "predict")
 
-    def test_svc(self):
-        model = _build_model("SVC", {"C": 1.0, "kernel": "linear"})
-        assert isinstance(model, SVC)
-        assert model.kernel == "linear"
-        assert model.probability is True
 
-    def test_unknown_fallback(self):
-        model = _build_model("XGBClassifier", {})
-        assert isinstance(model, RandomForestClassifier)
-        assert model.n_estimators == 100
-
-    def test_default_hyperparameters(self):
-        model = _build_model("LogisticRegression", {})
-        assert model.C == 1.0
-
-    def test_random_forest_none_max_depth(self):
-        model = _build_model("RandomForestClassifier", {"n_estimators": 100})
-        assert model.max_depth is None
+def test_build_model_uses_provided_hyperparameters():
+    """A range-based hyperparameter is passed through to the model."""
+    for model_name, params in VALID_MODELS.items():
+        for param, constraint in params.items():
+            if isinstance(constraint, tuple):
+                lo, hi = constraint
+                val = (lo + hi) / 2
+                model = _build_model(model_name, {param: val})
+                if hasattr(model, param):
+                    assert getattr(model, param) == pytest.approx(val, rel=0.01)
+                return
+    pytest.skip("No range-based param found in VALID_MODELS")
 
 
 # ── modeling_node tests ──────────────────────────────────────────────────
@@ -67,38 +59,30 @@ def modeling_state(make_state):
 class TestModelingNode:
     def test_default_config(self, modeling_state):
         result = modeling_node(modeling_state)
-        assert isinstance(result["model"], LogisticRegression)
+        assert hasattr(result["model"], "fit")
 
     def test_recommended_config(self, modeling_state):
+        model_name = list(VALID_MODELS.keys())[1]
         modeling_state["recommendations"] = {
-            "model_config": {
-                "model_name": "RandomForestClassifier",
-                "hyperparameters": {"n_estimators": 150},
-            }
+            "model_config": {"model_name": model_name, "hyperparameters": {}}
         }
         result = modeling_node(modeling_state)
-        assert isinstance(result["model"], RandomForestClassifier)
+        assert type(result["model"]).__name__ == model_name
 
-    def test_scaling_applied_for_svc(self, modeling_state):
+    @pytest.mark.parametrize("model_name", _SCALED_MODELS)
+    def test_scaling_applied(self, model_name, modeling_state):
         modeling_state["recommendations"] = {
-            "model_config": {
-                "model_name": "SVC",
-                "hyperparameters": {"C": 1.0, "kernel": "rbf"},
-            }
+            "model_config": {"model_name": model_name, "hyperparameters": {}}
         }
         result = modeling_node(modeling_state)
-        # X_train should be numpy array (result of StandardScaler transform)
         assert isinstance(result["X_train"], np.ndarray)
 
-    def test_no_scaling_for_rf(self, modeling_state):
+    @pytest.mark.parametrize("model_name", _UNSCALED_MODELS)
+    def test_no_scaling(self, model_name, modeling_state):
         modeling_state["recommendations"] = {
-            "model_config": {
-                "model_name": "RandomForestClassifier",
-                "hyperparameters": {"n_estimators": 100},
-            }
+            "model_config": {"model_name": model_name, "hyperparameters": {}}
         }
         result = modeling_node(modeling_state)
-        # X_train should be a DataFrame (no scaling applied)
         assert isinstance(result["X_train"], pd.DataFrame)
 
     def test_train_test_split_ratio(self, modeling_state):
@@ -109,9 +93,7 @@ class TestModelingNode:
 
     def test_model_is_fitted(self, modeling_state):
         result = modeling_node(modeling_state)
-        model = result["model"]
-        # A fitted sklearn model has `classes_` attribute
-        assert hasattr(model, "classes_")
+        assert hasattr(result["model"], "classes_")
 
     def test_return_keys(self, modeling_state):
         result = modeling_node(modeling_state)

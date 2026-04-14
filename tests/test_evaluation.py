@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-from sklearn.linear_model import LogisticRegression
 
 from app.graph.nodes.evaluation import evaluation_node
 
@@ -11,17 +10,14 @@ def _make_eval_state(y_test, y_pred_source="perfect"):
     """Build a minimal state for evaluation_node.
 
     y_pred_source controls what predictions the model makes:
-    - "perfect": model trained on data that makes perfect predictions
+    - "perfect": model predicts y_test exactly.
     """
     from sklearn.dummy import DummyClassifier
 
     if y_pred_source == "perfect":
-        # Use a DummyClassifier that predicts the most frequent class
-        # but we'll create a scenario with known outputs
         model = DummyClassifier(strategy="most_frequent")
         X_test = np.zeros((len(y_test), 2))
-        model.fit(X_test, y_test)  # fit so it knows the classes
-        # Override predict to return y_test exactly
+        model.fit(X_test, y_test)
         model.predict = lambda X: np.array(y_test)
 
     return {
@@ -50,7 +46,6 @@ class TestEvaluationNode:
         result = evaluation_node(state)
         for key in ["accuracy", "precision", "recall", "f1"]:
             val = result["metrics"][key]
-            # Values should be rounded to 4 decimal places
             assert val == round(val, 4)
 
     def test_report_content(self):
@@ -65,10 +60,7 @@ class TestEvaluationNode:
         assert "Confusion Matrix" in report
 
     def test_all_same_class(self):
-        """Edge case: all samples are class 0."""
         state = _make_eval_state([0, 0, 0, 0])
         result = evaluation_node(state)
-        # With zero_division=0, precision and recall for class 1 are 0
         assert result["metrics"]["accuracy"] == 1.0
-        # F1 for binary with only one class present: zero_division=0 gives 0
         assert result["metrics"]["f1"] == 0.0
