@@ -20,7 +20,7 @@ from app.ui.components import (
     render_iteration_metrics_chart,
     render_key_takeaways,
 )
-from app.ui.qa import ask_question_about_data
+from app.ui.notebook_export import generate_notebook
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -37,7 +37,7 @@ _DEFAULTS = {
     "target_column": None,
     "agent_result": None,
     "agent_history": [],
-    "qa_messages": [],
+    "uploaded_filename": None,
 }
 for key, val in _DEFAULTS.items():
     if key not in st.session_state:
@@ -71,6 +71,7 @@ if uploaded_file is not None:
         tmp.flush()
         st.session_state.dataset_path = tmp.name
         st.session_state.uploaded_df = pd.read_csv(tmp.name)
+        st.session_state.uploaded_filename = uploaded_file.name
         st.session_state.agent_result = None
         st.session_state.agent_history = []
 
@@ -258,27 +259,24 @@ if st.session_state.agent_history:
             st.markdown(h.get("feedback", "_No feedback recorded._"))
 
 # ===================================================================
-# Section 6 — Ask Questions (NL Q&A)
+# Section 6 — Download Pipeline Notebook
 # ===================================================================
-if st.session_state.uploaded_df is not None:
-    st.header("6. Ask Questions About Your Data")
+if st.session_state.agent_history:
+    st.header("6. Download Pipeline Notebook")
+    st.markdown(
+        "Export the pipeline from the best-performing iteration as a "
+        "standalone Jupyter notebook (.ipynb)."
+    )
 
-    for msg in st.session_state.qa_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    notebook_json = generate_notebook(
+        history=st.session_state.agent_history,
+        target_column=st.session_state.target_column,
+        dataset_filename=st.session_state.get("uploaded_filename", "dataset.csv"),
+    )
 
-    user_question = st.chat_input("Ask a question about the dataset...")
-
-    if user_question:
-        st.session_state.qa_messages.append({"role": "user", "content": user_question})
-        with st.chat_message("user"):
-            st.markdown(user_question)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                answer = ask_question_about_data(
-                    user_question, st.session_state.uploaded_df
-                )
-            st.markdown(answer)
-
-        st.session_state.qa_messages.append({"role": "assistant", "content": answer})
+    st.download_button(
+        label="Download Notebook (.ipynb)",
+        data=notebook_json,
+        file_name="ds_pipeline.ipynb",
+        mime="application/x-ipynb+json",
+    )
