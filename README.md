@@ -2,9 +2,11 @@
 
 **Live Demo:** [kc-agents.streamlit.app](https://kc-agents.streamlit.app/)
 
+***Work In Progress:*** Not a finished product 
+
 ## Overview
 
-An **autonomous data science agent** that iteratively builds, evaluates, and improves ML pipelines — driven by LLM feedback, not hardcoded rules.
+An **autonomous data science agent** that iteratively builds, evaluates, and improves ML pipelines — driven by LLM feedback. Goal is to provide a quick way for Exploratory analysis through baseline ML model, a starter code to build/modify on top of. 
 
 Upload a CSV, pick a target column, and the agent will:
 
@@ -104,6 +106,7 @@ Six sections rendered during and after the pipeline run:
 3. **Data Exploration** — data quality report (ranked issues, missing values, target distribution) + EDA visualizations
 4. **Pipeline Details** — cleaning summary, feature engineering per iteration, feature importance charts
 5. **Model Results** — grouped metrics chart, comparison table, Key Takeaways diagnostics, LLM critic feedback
+6. **Download notebook** - End-to-end ML pipeline code in jupyter notebook 
 
 ---
 
